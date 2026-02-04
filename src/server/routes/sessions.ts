@@ -1,0 +1,196 @@
+import { Router, type Router as RouterType } from "express";
+import { getDatabase } from "../services/database.js";
+import { randomUUID } from "crypto";
+
+const router: RouterType = Router();
+
+// GET /api/sessions - 세션 목록 조회
+router.get("/", async (req, res) => {
+    try {
+        const { projectPath } = req.query;
+        const db = getDatabase();
+
+        let query = "SELECT * FROM sessions";
+        const params: string[] = [];
+
+        if (projectPath) {
+            query += " WHERE project_path = ?";
+            params.push(projectPath as string);
+        }
+
+        query += " ORDER BY updated_at DESC";
+
+        const sessions = db.prepare(query).all(...params);
+
+        res.json({
+            data: sessions,
+            total: sessions.length,
+        });
+    } catch (error) {
+        console.error("Session list failed:", error);
+        res.status(500).json({
+            error: {
+                code: "SESSION_LIST_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error",
+            },
+        });
+    }
+});
+
+// POST /api/sessions - 세션 생성
+router.post("/", async (req, res) => {
+    try {
+        const { type, name, projectPath, model } = req.body;
+
+        if (!type || !projectPath) {
+            return res.status(400).json({
+                error: {
+                    code: "INVALID_INPUT",
+                    message: "type and projectPath are required",
+                },
+            });
+        }
+
+        const db = getDatabase();
+        const id = randomUUID();
+        const now = new Date().toISOString();
+
+        db.prepare(`
+            INSERT INTO sessions (id, type, model, name, project_path, source, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, type, model || null, name || null, projectPath, "web", "active", now, now);
+
+        const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+
+        res.status(201).json({
+            data: session,
+        });
+    } catch (error) {
+        console.error("Session create failed:", error);
+        res.status(500).json({
+            error: {
+                code: "SESSION_CREATE_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error",
+            },
+        });
+    }
+});
+
+// GET /api/sessions/:id - 세션 조회 (메시지 포함)
+router.get("/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const db = getDatabase();
+
+        const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+
+        if (!session) {
+            return res.status(404).json({
+                error: {
+                    code: "SESSION_NOT_FOUND",
+                    message: "Session not found",
+                },
+            });
+        }
+
+        // 세션의 메시지 조회
+        const messages = db.prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC").all(id);
+
+        res.json({
+            data: {
+                ...session,
+                messages,
+            },
+        });
+    } catch (error) {
+        console.error("Session get failed:", error);
+        res.status(500).json({
+            error: {
+                code: "SESSION_GET_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error",
+            },
+        });
+    }
+});
+
+// PATCH /api/sessions/:id - 세션 수정
+router.patch("/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+
+        const db = getDatabase();
+
+        // 세션 존재 확인
+        const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+
+        if (!session) {
+            return res.status(404).json({
+                error: {
+                    code: "SESSION_NOT_FOUND",
+                    message: "Session not found",
+                },
+            });
+        }
+
+        const now = new Date().toISOString();
+
+        // 이름 업데이트
+        db.prepare(`
+            UPDATE sessions
+            SET name = ?, updated_at = ?
+            WHERE id = ?
+        `).run(name || null, now, id);
+
+        const updatedSession = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+
+        res.json({
+            data: updatedSession,
+        });
+    } catch (error) {
+        console.error("Session update failed:", error);
+        res.status(500).json({
+            error: {
+                code: "SESSION_UPDATE_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error",
+            },
+        });
+    }
+});
+
+// DELETE /api/sessions/:id - 세션 삭제
+router.delete("/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const db = getDatabase();
+
+        // 세션 존재 확인
+        const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id);
+
+        if (!session) {
+            return res.status(404).json({
+                error: {
+                    code: "SESSION_NOT_FOUND",
+                    message: "Session not found",
+                },
+            });
+        }
+
+        // CASCADE로 관련 데이터 자동 삭제됨
+        db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+
+        res.json({
+            data: { deleted: true },
+        });
+    } catch (error) {
+        console.error("Session delete failed:", error);
+        res.status(500).json({
+            error: {
+                code: "SESSION_DELETE_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error",
+            },
+        });
+    }
+});
+
+export default router;

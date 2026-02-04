@@ -1,0 +1,240 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fonts */
+@font-face {
+  font-family: 'Pretendard';
+  src: url('../assets/fonts/PretendardVariable.ttf') format('truetype-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* CSS Variables - Design System */
+:root {
+  /* 배경 */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7f7f8;
+  --bg-tertiary: #e5e5e5;
+  --bg-input: #ffffff;
+
+  /* 텍스트 */
+  --text-primary: #1a1a1a;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+  --text-inverse: #ffffff;
+
+  /* 보더 */
+  --border-default: #e5e5e5;
+  --border-strong: #d1d1d1;
+  --border-focus: #1a1a1a;
+
+  /* 액센트 */
+  --accent-primary: #1a1a1a;
+  --accent-hover: #333333;
+  --accent-subtle: #f0f0f0;
+
+  /* 시맨틱 */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #6b7280;
+
+  /* 채팅 버블 */
+  --bubble-user: #f7f7f8;
+  --bubble-assistant: #ffffff;
+
+  /* 코드 */
+  --code-bg: #f5f5f5;
+  --code-block-bg: #1e1e1e;
+
+  /* 그림자 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+  --shadow-focus: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--border-focus);
+
+  /* 트랜지션 */
+  --transition-fast: 100ms ease;
+  --transition-normal: 150ms ease;
+  --transition-slow: 300ms ease;
+}
+
+/* 다크 모드 */
+[data-theme='dark'] {
+  /* 배경 */
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #242424;
+  --bg-tertiary: #2e2e2e;
+  --bg-input: #242424;
+
+  /* 텍스트 */
+  --text-primary: #f5f5f5;
+  --text-secondary: #a3a3a3;
+  --text-tertiary: #737373;
+  --text-inverse: #1a1a1a;
+
+  /* 보더 */
+  --border-default: #333333;
+  --border-strong: #444444;
+  --border-focus: #ffffff;
+
+  /* 액센트 */
+  --accent-primary: #ffffff;
+  --accent-hover: #e5e5e5;
+  --accent-subtle: #2e2e2e;
+
+  /* 채팅 버블 */
+  --bubble-user: #2e2e2e;
+  --bubble-assistant: #242424;
+
+  /* 코드 */
+  --code-bg: #2e2e2e;
+  --code-block-bg: #0d0d0d;
+
+  /* 그림자 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.6);
+}
+
+/* 기본 스타일 */
+@layer base {
+  * {
+    @apply border-border-default;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary font-sans;
+    @apply antialiased;
+  }
+
+  /* 스크롤바 스타일 */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-secondary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border-strong rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-tertiary;
+  }
+}
+
+/* 컴포넌트 스타일 */
+@layer components {
+  /* 버튼 */
+  .btn-primary {
+    @apply bg-accent-primary text-text-inverse;
+    @apply px-4 py-2 rounded-md;
+    @apply font-semibold text-sm;
+    @apply transition-colors duration-normal;
+    @apply hover:bg-accent-hover;
+  }
+
+  .btn-secondary {
+    @apply bg-transparent text-text-primary;
+    @apply border border-border-default;
+    @apply px-4 py-2 rounded-md;
+    @apply font-medium text-sm;
+    @apply transition-all duration-normal;
+    @apply hover:bg-bg-tertiary hover:border-border-strong;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-text-secondary;
+    @apply p-2 rounded-md;
+    @apply transition-all duration-normal;
+    @apply hover:bg-bg-tertiary hover:text-text-primary;
+  }
+
+  /* 입력창 */
+  .input {
+    @apply bg-bg-input border border-border-default;
+    @apply rounded-md px-4 py-3;
+    @apply text-base text-text-primary;
+    @apply transition-all duration-normal;
+    @apply hover:border-border-strong;
+    @apply focus:outline-none focus:border-border-focus focus:shadow-focus;
+  }
+
+  .input::placeholder {
+    @apply text-text-tertiary;
+  }
+}
+
+/* 애니메이션 */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* 유틸리티 */
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-text-primary to-text-secondary bg-clip-text text-transparent;
+  }
+
+  .animate-slideUp {
+    animation: slideUp var(--transition-normal);
+  }
+
+  .animate-fadeIn {
+    animation: fadeIn var(--transition-normal);
+  }
+
+  .animate-pulse {
+    animation: pulse 2s infinite;
+  }
+
+  .streaming-cursor::after {
+    content: "▊";
+    animation: blink 1s infinite;
+    color: var(--text-tertiary);
+  }
+}

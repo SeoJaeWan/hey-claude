@@ -1,0 +1,13 @@
+{
+    "name": "hey-claude",
+    "version": "1.0.0",
+    "description": "웹 UI + 멀티 AI + 자동 컨텍스트 관리",
+    "author": {
+        "name": "서재완"
+    },
+    "homepage": "https://github.com/SeoJaeWan/hey-claude",
+    "repository": "https://github.com/SeoJaeWan/hey-claude",
+    "license": "MIT",
+    "keywords": ["memory", "context", "multi-ai", "web-ui"],
+    "hooks": "./hooks/hooks.json"
+}

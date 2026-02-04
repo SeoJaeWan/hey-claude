@@ -1,0 +1,170 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "confirm": "Confirm",
+    "refresh": "Refresh",
+    "loading": "Loading...",
+    "error": "Error",
+    "enableAutoStart": "Enable auto start",
+    "copyCode": "Copy code",
+    "openMenu": "Open menu",
+    "removeImage": "Remove image",
+    "selectModel": "Select model",
+    "selectProvider": "Select provider",
+    "notInstalled": "Not installed",
+    "loggedIn": "Logged in",
+    "loginRequired": "Login required",
+    "clickToDelete": "Click again to delete",
+    "changedFiles": "Changed files"
+  },
+  "sidebar": {
+    "newSession": "New Session",
+    "settings": "Settings",
+    "claudeCodeSessions": "Claude Code",
+    "quickChatSessions": "Quick Chat"
+  },
+  "settings": {
+    "title": "Settings",
+    "tabs": {
+      "general": "General",
+      "aiProviders": "AI Providers",
+      "snippets": "Snippets"
+    },
+    "general": {
+      "theme": "Theme",
+      "themeLight": "Light",
+      "themeDark": "Dark",
+      "themeSystem": "System",
+      "themeDescription": "Select the interface color theme.",
+      "language": "Language",
+      "languageDescription": "Select the interface language.",
+      "autoStart": "Auto Start Server",
+      "autoStartDescription": "Automatically start hey-claude server when running Claude Code in terminal."
+    },
+    "aiProviders": {
+      "title": "AI Providers",
+      "refresh": "Refresh",
+      "claudeCodeSection": "Claude Code (Claude Code tab only)",
+      "quickChatSection": "AI Provider for Quick Chat tab",
+      "hooksIntegration": "Works via Hooks integration"
+    },
+    "snippets": {
+      "title": "Snippets",
+      "addSnippet": "Add Snippet",
+      "editSnippet": "Edit Snippet",
+      "noSnippets": "No snippets yet",
+      "trigger": "Trigger",
+      "triggerPlaceholder": "@trigger",
+      "name": "Name",
+      "namePlaceholder": "Snippet name",
+      "content": "Content",
+      "contentPlaceholder": "Enter the text to be inserted",
+      "validation": {
+        "triggerRequired": "Trigger is required",
+        "triggerStartWith": "Trigger must start with @",
+        "triggerNoSpaces": "Trigger cannot contain spaces",
+        "triggerExists": "This trigger already exists",
+        "nameRequired": "Name is required",
+        "contentRequired": "Content is required"
+      }
+    },
+    "loadError": "Failed to load settings."
+  },
+  "chat": {
+    "inputPlaceholder": "Enter your message...",
+    "send": "Send",
+    "feedback": "Feedback",
+    "attachImage": "Attach image",
+    "summarizing": "Summarizing...",
+    "contextSummary": "Context summary",
+    "requestingFeedback": "Requesting feedback...",
+    "dropImageHere": "Drop image here",
+    "dropImageDescription": "Drop image files to attach"
+  },
+  "session": {
+    "rename": "Rename",
+    "delete": "Delete",
+    "deleteConfirmTitle": "Delete Session",
+    "deleteConfirmMessage": "Are you sure you want to delete this session?",
+    "deleteConfirmDetail": "Deleted sessions cannot be recovered.",
+    "renameDialogTitle": "Rename Session",
+    "renamePlaceholder": "Enter session name",
+    "menu": "Session menu",
+    "closeMenu": "Close menu",
+    "openMenu": "Open menu"
+  },
+  "newSession": {
+    "title": "hey-claude",
+    "subtitle": "How can I help you?",
+    "claudeCode": "Claude Code",
+    "quickChat": "Quick Chat"
+  },
+  "setup": {
+    "refresh": "Refresh",
+    "refreshHint": "Refresh the page after installation.",
+    "claudeCode": {
+      "title": "Claude Code Required",
+      "description": "Claude Code is not installed."
+    },
+    "plugin": {
+      "title": "Plugin Required",
+      "description": "Plugin installation is required to collect tool usage.",
+      "hint": "Run in Claude Code, then refresh the page."
+    }
+  },
+  "time": {
+    "justNow": "Just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} hours ago",
+    "yesterday": "Yesterday",
+    "daysAgo": "{{count}} days ago",
+    "weeksAgo": "{{count}} weeks ago",
+    "monthsAgo": "{{count}} months ago",
+    "yearsAgo": "{{count}} years ago"
+  },
+  "commands": {
+    "help": "Show help",
+    "clear": "Clear conversation",
+    "new": "Start new session",
+    "summary": "Context summary",
+    "settings": "Open settings"
+  },
+  "snippets": {
+    "reactTemplate": "React component template",
+    "tsInterface": "TypeScript interface",
+    "testTemplate": "Test code template",
+    "apiTemplate": "API request template",
+    "tailwindStyle": "Tailwind style example"
+  },
+  "models": {
+    "mostPowerful": "Most powerful model",
+    "balanced": "Balanced performance",
+    "fastResponse": "Fast response",
+    "latestPro": "Latest Pro model",
+    "experimental": "Experimental model",
+    "latestGPT": "Latest GPT model",
+    "reasoning": "Reasoning model",
+    "lightReasoning": "Light reasoning model",
+    "groqOptimized": "Groq optimized",
+    "moeModel": "MoE model",
+    "lightModel": "Light model"
+  },
+  "providers": {
+    "gemini": {
+      "name": "Gemini",
+      "description": "Free (60req/min)"
+    },
+    "groq": {
+      "name": "Groq",
+      "description": "Fast response"
+    },
+    "codex": {
+      "name": "Codex",
+      "description": "OpenAI Codex"
+    }
+  }
+}

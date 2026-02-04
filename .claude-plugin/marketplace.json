@@ -1,0 +1,23 @@
+{
+    "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+    "name": "hey-claude-marketplace",
+    "version": "1.0.0",
+    "description": "hey-claude plugin marketplace - 웹 UI + 멀티 AI + 자동 컨텍스트 관리",
+    "owner": {
+        "name": "서재완",
+        "email": "sjw7324@gmail.com"
+    },
+    "plugins": [
+        {
+            "name": "hey-claude",
+            "description": "Claude Code 도구 사용 내역 수집 플러그인 - hey-claude 서버와 연동하여 컨텍스트 자동 관리",
+            "version": "1.0.0",
+            "author": {
+                "name": "서재완",
+                "email": "sjw7324@gmail.com"
+            },
+            "source": "./plugin",
+            "category": "productivity"
+        }
+    ]
+}
