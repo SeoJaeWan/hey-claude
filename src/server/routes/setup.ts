@@ -44,32 +44,72 @@ const checkClaudeCode = (): { installed: boolean; version?: string } => {
 
 /**
  * Claude Code Plugin 설치 여부를 확인합니다.
+ * installed_plugins.json 파일을 파싱하여 hey-claude 플러그인이 설치되어 있는지 확인합니다.
+ *
+ * 지원하는 플러그인 키 형식:
+ * - hey-claude@hey-claude-marketplace (기본)
+ * - hey-claude@npm (npm registry)
+ * - hey-claude@* (기타 마켓플레이스)
  */
 const checkClaudeCodePlugin = (): { installed: boolean; version?: string } => {
     try {
         const homeDir = homedir();
-        const pluginPath = join(homeDir, ".claude", "plugins");
+        const installedPluginsPath = join(homeDir, ".claude", "plugins", "installed_plugins.json");
 
-        const possiblePaths = [
-            join(pluginPath, "marketplaces", "hey-claude", "hooks", "hooks.json"),
-            join(pluginPath, "hey-claude", "hooks", "hooks.json"),
-        ];
+        if (!existsSync(installedPluginsPath)) {
+            console.log("installed_plugins.json not found at:", installedPluginsPath);
+            return { installed: false };
+        }
 
-        for (const path of possiblePaths) {
-            if (existsSync(path)) {
-                // plugin.json에서 버전 정보 읽기 시도
-                const pluginJsonPath = path.replace("hooks/hooks.json", ".claude-plugin/plugin.json");
-                if (existsSync(pluginJsonPath)) {
-                    const pluginJson = JSON.parse(readFileSync(pluginJsonPath, "utf-8"));
-                    return { installed: true, version: pluginJson.version };
-                }
-                return { installed: true };
+        const fileContent = readFileSync(installedPluginsPath, "utf-8");
+        const installedPlugins = JSON.parse(fileContent);
+        const plugins = installedPlugins.plugins || {};
+
+        console.log("Checking for hey-claude plugin...");
+        console.log("Available plugin keys:", Object.keys(plugins));
+
+        // 1. 정확한 키로 먼저 확인 (가장 빠름)
+        const exactKey = "hey-claude@hey-claude-marketplace";
+        if (plugins[exactKey]) {
+            const pluginData = plugins[exactKey];
+            if (Array.isArray(pluginData) && pluginData.length > 0) {
+                const pluginInfo = pluginData[0];
+                console.log(`✅ Found plugin with key: ${exactKey}`);
+                return {
+                    installed: true,
+                    version: pluginInfo.version,
+                };
             }
         }
 
+        // 2. hey-claude@로 시작하는 모든 키 확인 (다양한 마켓플레이스 지원)
+        const heyClaudeKeys = Object.keys(plugins).filter((key) =>
+            key.toLowerCase().startsWith("hey-claude@")
+        );
+
+        if (heyClaudeKeys.length > 0) {
+            console.log(`Found ${heyClaudeKeys.length} hey-claude related keys:`, heyClaudeKeys);
+
+            for (const key of heyClaudeKeys) {
+                const pluginData = plugins[key];
+                if (Array.isArray(pluginData) && pluginData.length > 0) {
+                    const pluginInfo = pluginData[0];
+                    console.log(`✅ Using plugin from key: ${key}`);
+                    return {
+                        installed: true,
+                        version: pluginInfo.version,
+                    };
+                }
+            }
+        }
+
+        console.log("❌ hey-claude plugin not found in installed_plugins.json");
         return { installed: false };
     } catch (error) {
         console.error("Plugin check error:", error);
+        if (error instanceof SyntaxError) {
+            console.error("Failed to parse installed_plugins.json - invalid JSON format");
+        }
         return { installed: false };
     }
 };

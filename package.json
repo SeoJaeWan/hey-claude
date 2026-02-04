@@ -15,7 +15,9 @@
     "build:ui": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:setup-api": "node scripts/test-setup-api.js",
+    "check:plugin-file": "node scripts/check-plugin-file.js"
   },
   "keywords": [
     "claude",
