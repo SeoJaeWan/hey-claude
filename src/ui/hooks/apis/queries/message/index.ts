@@ -116,7 +116,8 @@ export const useSendMessageStream = () => {
                             try {
                                 const data = JSON.parse(line.slice(6));
 
-                                if (data.type === "chunk") {
+                                // chunk와 question 모두 동일하게 처리
+                                if (data.type === "chunk" || data.type === "question") {
                                     assistantContent += data.content;
                                     setStreamContent(assistantContent);
 

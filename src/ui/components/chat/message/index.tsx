@@ -1,4 +1,5 @@
 import FileChangesCard from "../fileChangesCard";
+import QuestionCard from "../questionCard";
 import type {Message as MessageType} from "../../../types";
 
 interface MessageProps {
@@ -9,6 +10,9 @@ interface MessageProps {
 const Message = ({message, isStreaming = false}: MessageProps) => {
     const isUser = message.role === "user";
     const showCursor = !isUser && isStreaming;
+
+    // 질문 패턴 감지
+    const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(message.content);
 
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -23,18 +27,25 @@ const Message = ({message, isStreaming = false}: MessageProps) => {
                         }
                     `}
                 >
-                    <p className={`text-base leading-relaxed whitespace-pre-wrap break-words ${showCursor ? "streaming-cursor" : ""}`}>
-                        {message.content}
-                    </p>
+                    {/* assistant 메시지이면서 질문 패턴이 있으면 QuestionCard */}
+                    {!isUser && hasNumberedOptions ? (
+                        <QuestionCard content={message.content} />
+                    ) : (
+                        <p className={`text-base leading-relaxed whitespace-pre-wrap break-words ${showCursor ? "streaming-cursor" : ""}`}>
+                            {message.content}
+                        </p>
+                    )}
                 </div>
 
                 {/* 파일 변경사항 (assistant 메시지에만 표시) */}
                 {!isUser && message.changes && (
-                    <FileChangesCard changes={[
-                        ...message.changes.modified,
-                        ...message.changes.added.map(path => ({path, type: 'added' as const})),
-                        ...message.changes.deleted.map(path => ({path, type: 'deleted' as const})),
-                    ]} />
+                    <FileChangesCard
+                        changes={[
+                            ...message.changes.modified,
+                            ...message.changes.added.map(path => ({path, type: "added" as const})),
+                            ...message.changes.deleted.map(path => ({path, type: "deleted" as const}))
+                        ]}
+                    />
                 )}
             </div>
         </div>
