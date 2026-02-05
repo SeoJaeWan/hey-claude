@@ -134,9 +134,10 @@ router.post("/stream", async (req, res) => {
                         console.log("[CHAT STREAM] Claude session ID extracted:", claudeSessionId);
                     }
 
-                    // type: "assistant" 메시지에서 실제 텍스트 추출
+                    // type: "assistant" 메시지에서 실제 텍스트 및 tool_use 추출
                     if (parsed.type === "assistant" && parsed.message?.content) {
                         for (const contentBlock of parsed.message.content) {
+                            // 텍스트 블록 처리
                             if (contentBlock.type === "text" && contentBlock.text) {
                                 const text = contentBlock.text;
                                 assistantResponse += text;
@@ -153,6 +154,35 @@ router.post("/stream", async (req, res) => {
                                     res.write(`data: ${JSON.stringify({ type: "chunk", content: text })}\n\n`);
                                     console.log("[CHAT STREAM] Extracted text, length:", text.length);
                                 }
+                            }
+
+                            // tool_use 블록 처리 (Phase 1: 감지 및 전송)
+                            if (contentBlock.type === "tool_use") {
+                                const toolUseData = {
+                                    type: "tool_use",
+                                    tool_use_id: contentBlock.id,
+                                    tool_name: contentBlock.name,
+                                    tool_input: contentBlock.input
+                                };
+
+                                // SSE로 tool_use 정보 전송
+                                res.write(`data: ${JSON.stringify(toolUseData)}\n\n`);
+                                console.log("[CHAT STREAM] tool_use detected:", {
+                                    id: contentBlock.id,
+                                    name: contentBlock.name,
+                                    input: contentBlock.input
+                                });
+
+                                // TODO Phase 2: tool_use 감지 후 처리
+                                // 1. 프로세스 종료 여부 결정 (tool_name에 따라 처리)
+                                // 2. tool_result 전송 로직 (별도 엔드포인트 필요)
+                                //    - POST /api/chat/tool-result 엔드포인트 생성
+                                //    - --resume <claude_session_id> 사용하여 세션 재개
+                                //    - tool_result를 stdin으로 전송
+                                // 3. 세션 상태 관리
+                                //    - DB에 awaiting_tool_result 상태 추가
+                                //    - 대기 중인 tool_use_id 저장
+                                //    - 타임아웃 처리
                             }
                         }
                     }
