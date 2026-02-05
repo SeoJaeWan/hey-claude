@@ -11,9 +11,6 @@ const Message = ({message, isStreaming = false}: MessageProps) => {
     const isUser = message.role === "user";
     const showCursor = !isUser && isStreaming;
 
-    // 질문 패턴 감지
-    const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(message.content);
-
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
             <div className="max-w-[85%]">
@@ -27,8 +24,8 @@ const Message = ({message, isStreaming = false}: MessageProps) => {
                         }
                     `}
                 >
-                    {/* assistant 메시지이면서 질문 패턴이 있으면 QuestionCard */}
-                    {!isUser && hasNumberedOptions ? (
+                    {/* assistant 메시지이면서 isQuestion 플래그가 있으면 QuestionCard */}
+                    {!isUser && message.isQuestion ? (
                         <QuestionCard content={message.content} />
                     ) : (
                         <p className={`text-base leading-relaxed whitespace-pre-wrap break-words ${showCursor ? "streaming-cursor" : ""}`}>

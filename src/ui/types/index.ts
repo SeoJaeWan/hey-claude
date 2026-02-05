@@ -28,6 +28,7 @@ export interface Message {
     images?: string[];
     changes?: FileChanges;
     createdAt: string;
+    isQuestion?: boolean; // 질문 여부 (type: "question"일 때 true)
 }
 
 // 도구 사용 내역

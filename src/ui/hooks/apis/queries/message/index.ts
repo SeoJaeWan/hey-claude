@@ -100,6 +100,7 @@ export const useSendMessageStream = () => {
                 const decoder = new TextDecoder();
                 let buffer = "";
                 let assistantContent = "";
+                let isQuestion = false; // 질문 여부 추적
 
                 while (true) {
                     const {done, value} = await reader.read();
@@ -118,6 +119,11 @@ export const useSendMessageStream = () => {
 
                                 // chunk와 question 모두 동일하게 처리
                                 if (data.type === "chunk" || data.type === "question") {
+                                    // question 타입이면 플래그 설정
+                                    if (data.type === "question") {
+                                        isQuestion = true;
+                                    }
+
                                     assistantContent += data.content;
                                     setStreamContent(assistantContent);
 
@@ -134,7 +140,7 @@ export const useSendMessageStream = () => {
                                                 ...old,
                                                 messages: [
                                                     ...messages.slice(0, -1),
-                                                    {...lastMsg, content: assistantContent}
+                                                    {...lastMsg, content: assistantContent, isQuestion}
                                                 ]
                                             };
                                         } else {
@@ -148,7 +154,8 @@ export const useSendMessageStream = () => {
                                                         session_id: sessionId,
                                                         role: 'assistant',
                                                         content: assistantContent,
-                                                        timestamp: new Date().toISOString()
+                                                        timestamp: new Date().toISOString(),
+                                                        isQuestion
                                                     }
                                                 ]
                                             };

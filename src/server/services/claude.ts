@@ -33,7 +33,7 @@ export const callClaude = (options: ClaudeOptions): ChildProcess => {
     // shell: false로 직접 실행 (Windows .exe 파일 직접 호출)
     const claude = spawn(claudePath!, args, {
         cwd: cwd || process.cwd(),
-        stdio: ['pipe', 'pipe', 'pipe'], // stdin을 pipe로 설정 (양방향 통신)
+        stdio: ['ignore', 'pipe', 'pipe'], // stdin을 ignore (프로세스 대기 방지)
         shell: false, // shell 없이 직접 실행
         windowsHide: false, // 디버깅을 위해 일단 표시
     });

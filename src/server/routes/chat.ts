@@ -26,16 +26,16 @@ router.post("/stream", async (req, res) => {
             return;
         }
 
-        // 활성 프로세스가 있으면 stdin으로 전달 (사용자 답변)
+        // TODO: 질문 응답 기능 재설계 필요
+        // stdin을 ignore로 설정했으므로 현재는 동작하지 않음
+        // 향후 질문 감지 시 별도 프로세스로 처리하는 방식으로 재구현
+        /*
         const activeProcess = activeStreams.get(sessionId);
         if (activeProcess && activeProcess.stdin && !activeProcess.killed) {
             console.log("[CHAT STREAM] Writing to stdin:", prompt);
-
-            // SSE 헤더 설정
             res.setHeader("Content-Type", "text/event-stream");
             res.setHeader("Cache-Control", "no-cache");
             res.setHeader("Connection", "keep-alive");
-
             try {
                 activeProcess.stdin.write(prompt + "\n", "utf-8");
                 res.write(`data: ${JSON.stringify({ type: "input_sent" })}\n\n`);
@@ -48,6 +48,7 @@ router.post("/stream", async (req, res) => {
                 return;
             }
         }
+        */
 
         // SSE 헤더 설정
         res.setHeader("Content-Type", "text/event-stream");
