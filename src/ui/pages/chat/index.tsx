@@ -97,11 +97,11 @@ const ChatPage = () => {
         // 스트리밍 중인 메시지를 마지막에 추가
         if (isStreaming && streamContent) {
             allMessages.push({
-                id: 'streaming',
-                sessionId: sessionId || '',
-                role: 'assistant' as const,
+                id: "streaming",
+                sessionId: sessionId || "",
+                role: "assistant" as const,
                 content: streamContent,
-                createdAt: new Date().toISOString(),
+                createdAt: new Date().toISOString()
             });
         }
 
@@ -116,7 +116,7 @@ const ChatPage = () => {
     }, []);
 
     return (
-        <div className="relative flex-1 flex flex-col" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+        <div className="relative flex-1 flex flex-col overflow-hidden" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
             {/* Header with Session Name */}
             <PageHeader title={sessionName} onMenuClick={onMenuClick} />
 

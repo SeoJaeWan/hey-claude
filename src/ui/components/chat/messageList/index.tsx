@@ -20,8 +20,7 @@ const MessageList = ({messages, isStreaming = false}: MessageListProps) => {
                 ) : (
                     messages.map((message, index) => {
                         // 마지막 assistant 메시지에만 isStreaming 전달
-                        const isLastAssistant =
-                            index === messages.length - 1 && message.role === "assistant";
+                        const isLastAssistant = index === messages.length - 1 && message.role === "assistant";
                         const showStreaming = isLastAssistant && isStreaming;
 
                         return <Message key={message.id} message={message} isStreaming={showStreaming} />;
