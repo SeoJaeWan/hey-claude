@@ -1,10 +1,14 @@
 import { Router, type Router as RouterType } from "express";
 import { randomUUID } from "crypto";
+import { type ChildProcess } from "child_process";
 import { callClaude } from "../services/claude.js";
 import { getRecentContext } from "../services/context.js";
 import { getDatabase } from "../services/database.js";
 
 const router: RouterType = Router();
+
+// 세션별 활성 스트리밍 프로세스 관리
+const activeStreams = new Map<string, ChildProcess>();
 
 // POST /api/chat/stream - SSE 스트리밍
 router.post("/stream", async (req, res) => {
@@ -20,6 +24,29 @@ router.post("/stream", async (req, res) => {
                 },
             });
             return;
+        }
+
+        // 활성 프로세스가 있으면 stdin으로 전달 (사용자 답변)
+        const activeProcess = activeStreams.get(sessionId);
+        if (activeProcess && activeProcess.stdin && !activeProcess.killed) {
+            console.log("[CHAT STREAM] Writing to stdin:", prompt);
+
+            // SSE 헤더 설정
+            res.setHeader("Content-Type", "text/event-stream");
+            res.setHeader("Cache-Control", "no-cache");
+            res.setHeader("Connection", "keep-alive");
+
+            try {
+                activeProcess.stdin.write(prompt + "\n", "utf-8");
+                res.write(`data: ${JSON.stringify({ type: "input_sent" })}\n\n`);
+                res.end();
+                return;
+            } catch (error) {
+                console.log("[CHAT STREAM] Failed to write to stdin:", error);
+                res.write(`data: ${JSON.stringify({ type: "error", error: "Failed to send input" })}\n\n`);
+                res.end();
+                return;
+            }
         }
 
         // SSE 헤더 설정
@@ -75,6 +102,10 @@ router.post("/stream", async (req, res) => {
             cwd: projectPath,
         });
 
+        // 활성 프로세스 등록
+        activeStreams.set(sessionId, claude);
+        console.log("[CHAT STREAM] Process registered for session:", sessionId);
+
         let assistantResponse = "";
         let claudeSessionId = session.claude_session_id;
         let buffer = "";
@@ -108,8 +139,19 @@ router.post("/stream", async (req, res) => {
                             if (contentBlock.type === "text" && contentBlock.text) {
                                 const text = contentBlock.text;
                                 assistantResponse += text;
-                                res.write(`data: ${JSON.stringify({ type: "chunk", content: text })}\n\n`);
-                                console.log("[CHAT STREAM] Extracted text, length:", text.length);
+
+                                // 질문 패턴 감지: 숫자 목록 (1. 2. 3. 등)
+                                const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(text);
+
+                                if (hasNumberedOptions) {
+                                    // 질문으로 표시
+                                    res.write(`data: ${JSON.stringify({ type: "question", content: text })}\n\n`);
+                                    console.log("[CHAT STREAM] Question detected, length:", text.length);
+                                } else {
+                                    // 일반 텍스트
+                                    res.write(`data: ${JSON.stringify({ type: "chunk", content: text })}\n\n`);
+                                    console.log("[CHAT STREAM] Extracted text, length:", text.length);
+                                }
                             }
                         }
                     }
@@ -139,6 +181,10 @@ router.post("/stream", async (req, res) => {
         claude.on("close", (code) => {
             console.log("[CHAT STREAM] Claude process closed with code:", code);
             console.log("[CHAT STREAM] Response length:", assistantResponse.length);
+
+            // 프로세스 정리
+            activeStreams.delete(sessionId);
+            console.log("[CHAT STREAM] Process removed from active streams");
 
             if (code === 0 && assistantResponse) {
                 const assistantMessageId = randomUUID();
