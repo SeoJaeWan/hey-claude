@@ -24,9 +24,17 @@ const Message = ({message, isStreaming = false}: MessageProps) => {
                         }
                     `}
                 >
-                    {/* assistant 메시지이면서 isQuestion 플래그가 있으면 QuestionCard */}
-                    {!isUser && message.isQuestion ? (
-                        <QuestionCard content={message.content} />
+                    {/* assistant 메시지이면서 questionData가 있으면 QuestionCard */}
+                    {!isUser && message.questionData ? (
+                        <>
+                            {/* 질문 전 텍스트가 있으면 표시 */}
+                            {message.content && (
+                                <p className="text-base leading-relaxed whitespace-pre-wrap break-words mb-3">
+                                    {message.content}
+                                </p>
+                            )}
+                            <QuestionCard questionData={message.questionData} />
+                        </>
                     ) : (
                         <p className={`text-base leading-relaxed whitespace-pre-wrap break-words ${showCursor ? "streaming-cursor" : ""}`}>
                             {message.content}

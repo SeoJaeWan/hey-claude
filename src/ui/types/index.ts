@@ -20,6 +20,23 @@ export interface Session {
 // 메시지 타입
 export type MessageRole = "user" | "assistant" | "system";
 
+export interface QuestionOption {
+    label: string;
+    description: string;
+}
+
+export interface QuestionItem {
+    question: string;
+    header: string;
+    multiSelect: boolean;
+    options: QuestionOption[];
+}
+
+export interface QuestionData {
+    tool_use_id: string;
+    questions: QuestionItem[];
+}
+
 export interface Message {
     id: string;
     sessionId: string;
@@ -29,6 +46,7 @@ export interface Message {
     changes?: FileChanges;
     createdAt: string;
     isQuestion?: boolean; // 질문 여부 (type: "question"일 때 true)
+    questionData?: QuestionData; // AskUserQuestion 구조화된 데이터
 }
 
 // 도구 사용 내역

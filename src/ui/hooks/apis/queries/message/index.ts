@@ -161,6 +161,101 @@ export const useSendMessageStream = () => {
                                             };
                                         }
                                     });
+                                } else if (data.type === "tool_use") {
+                                    // tool_use 이벤트 처리 및 UI 표시
+                                    console.log("[SSE] tool_use detected:", data);
+
+                                    // AskUserQuestion인 경우 특별 처리
+                                    if (data.tool_name === "AskUserQuestion") {
+                                        console.log("[SSE] AskUserQuestion detected, questions:", data.tool_input.questions);
+
+                                        // 질문 안내 텍스트 추가
+                                        const questionInfo = `\n❓ 질문이 있습니다. 아래 선택지 중 하나를 골라주세요.\n`;
+                                        assistantContent += questionInfo;
+                                        setStreamContent(assistantContent);
+
+                                        // questionData 저장
+                                        const questionData = {
+                                            tool_use_id: data.tool_use_id,
+                                            questions: data.tool_input.questions
+                                        };
+
+                                        // React Query 캐시 업데이트 (questionData 포함)
+                                        queryClient.setQueryData(['session', sessionId], (old: any) => {
+                                            if (!old) return old;
+
+                                            const messages = old.messages || [];
+                                            const lastMsg = messages[messages.length - 1];
+
+                                            if (lastMsg?.id === tempAssistantMsgId) {
+                                                return {
+                                                    ...old,
+                                                    messages: [
+                                                        ...messages.slice(0, -1),
+                                                        {
+                                                            ...lastMsg,
+                                                            content: assistantContent,
+                                                            isQuestion: true,
+                                                            questionData
+                                                        }
+                                                    ]
+                                                };
+                                            } else {
+                                                return {
+                                                    ...old,
+                                                    messages: [
+                                                        ...messages,
+                                                        {
+                                                            id: tempAssistantMsgId,
+                                                            session_id: sessionId,
+                                                            role: 'assistant',
+                                                            content: assistantContent,
+                                                            timestamp: new Date().toISOString(),
+                                                            isQuestion: true,
+                                                            questionData
+                                                        }
+                                                    ]
+                                                };
+                                            }
+                                        });
+                                    } else {
+                                        // 일반 tool_use는 기존 방식대로 처리
+                                        const toolInfo = `\n🔧 [${data.tool_name}] 실행 중...\n`;
+                                        assistantContent += toolInfo;
+                                        setStreamContent(assistantContent);
+
+                                        // React Query 캐시 업데이트
+                                        queryClient.setQueryData(['session', sessionId], (old: any) => {
+                                            if (!old) return old;
+
+                                            const messages = old.messages || [];
+                                            const lastMsg = messages[messages.length - 1];
+
+                                            if (lastMsg?.id === tempAssistantMsgId) {
+                                                return {
+                                                    ...old,
+                                                    messages: [
+                                                        ...messages.slice(0, -1),
+                                                        {...lastMsg, content: assistantContent}
+                                                    ]
+                                                };
+                                            } else {
+                                                return {
+                                                    ...old,
+                                                    messages: [
+                                                        ...messages,
+                                                        {
+                                                            id: tempAssistantMsgId,
+                                                            session_id: sessionId,
+                                                            role: 'assistant',
+                                                            content: assistantContent,
+                                                            timestamp: new Date().toISOString()
+                                                        }
+                                                    ]
+                                                };
+                                            }
+                                        });
+                                    }
                                 } else if (data.type === "error") {
                                     setError(data.content || data.error);
                                     setIsStreaming(false);

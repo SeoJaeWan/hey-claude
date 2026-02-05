@@ -1,21 +1,125 @@
-import {HelpCircle} from 'lucide-react';
+import {HelpCircle, CheckCircle2, Circle} from 'lucide-react';
+import {useState} from 'react';
+import type {QuestionData} from '../../../types';
 
 interface QuestionCardProps {
-    content: string;
+    questionData: QuestionData;
 }
 
-const QuestionCard = ({content}: QuestionCardProps) => {
+const QuestionCard = ({questionData}: QuestionCardProps) => {
+    const {questions} = questionData;
+
+    // 각 질문별 선택 상태 관리
+    const [selections, setSelections] = useState<Record<number, number[]>>(() => {
+        const initial: Record<number, number[]> = {};
+        questions.forEach((_, idx) => {
+            initial[idx] = [];
+        });
+        return initial;
+    });
+
+    const handleOptionClick = (questionIdx: number, optionIdx: number, multiSelect: boolean) => {
+        setSelections(prev => {
+            const current = prev[questionIdx] || [];
+
+            if (multiSelect) {
+                // 다중 선택: 토글
+                if (current.includes(optionIdx)) {
+                    return {...prev, [questionIdx]: current.filter(i => i !== optionIdx)};
+                } else {
+                    return {...prev, [questionIdx]: [...current, optionIdx]};
+                }
+            } else {
+                // 단일 선택: 교체
+                return {...prev, [questionIdx]: [optionIdx]};
+            }
+        });
+    };
+
+    const isSelected = (questionIdx: number, optionIdx: number) => {
+        return selections[questionIdx]?.includes(optionIdx) || false;
+    };
+
     return (
-        <div className="question-card bg-accent-primary/5 border border-accent-primary/20 rounded-lg p-4 my-2">
-            {/* 선택 안내 */}
-            <div className="flex items-center gap-2 mb-3 text-xs text-text-secondary">
+        <div className="question-card bg-accent-primary/5 border border-accent-primary/20 rounded-lg p-4 my-2 space-y-4">
+            {/* 안내 메시지 */}
+            <div className="flex items-center gap-2 text-xs text-text-secondary">
                 <HelpCircle className="w-4 h-4 text-accent-primary" />
-                <span>숫자를 입력하여 선택하세요</span>
+                <span>선택지를 클릭하여 답변을 선택하세요</span>
             </div>
 
-            {/* 질문 텍스트 그대로 표시 (파싱 불필요) */}
-            <div className="whitespace-pre-wrap text-sm text-text-primary">
-                {content}
+            {/* 각 질문 렌더링 */}
+            {questions.map((q, qIdx) => (
+                <div key={qIdx} className="space-y-2">
+                    {/* 질문 헤더 */}
+                    <div className="flex items-center gap-2">
+                        <span className="inline-block px-2 py-0.5 text-xs font-medium bg-accent-primary/10 text-accent-primary rounded">
+                            {q.header}
+                        </span>
+                        {q.multiSelect && (
+                            <span className="text-xs text-text-secondary">(복수 선택 가능)</span>
+                        )}
+                    </div>
+
+                    {/* 질문 텍스트 */}
+                    <p className="text-sm font-medium text-text-primary">
+                        {q.question}
+                    </p>
+
+                    {/* 선택지 목록 */}
+                    <div className="space-y-2 ml-2">
+                        {q.options.map((option, oIdx) => {
+                            const selected = isSelected(qIdx, oIdx);
+                            return (
+                                <button
+                                    key={oIdx}
+                                    onClick={() => handleOptionClick(qIdx, oIdx, q.multiSelect)}
+                                    className={`
+                                        w-full text-left p-3 rounded-lg border transition-all
+                                        ${selected
+                                            ? 'bg-accent-primary/10 border-accent-primary/50 shadow-sm'
+                                            : 'bg-background-secondary border-border-default hover:border-accent-primary/30 hover:bg-accent-primary/5'
+                                        }
+                                    `}
+                                >
+                                    <div className="flex items-start gap-3">
+                                        {/* 선택 아이콘 */}
+                                        <div className="mt-0.5 flex-shrink-0">
+                                            {selected ? (
+                                                <CheckCircle2 className="w-5 h-5 text-accent-primary" />
+                                            ) : (
+                                                <Circle className="w-5 h-5 text-text-tertiary" />
+                                            )}
+                                        </div>
+
+                                        {/* 옵션 내용 */}
+                                        <div className="flex-1 min-w-0">
+                                            <div className={`text-sm font-medium ${selected ? 'text-accent-primary' : 'text-text-primary'}`}>
+                                                {option.label}
+                                            </div>
+                                            <div className="text-xs text-text-secondary mt-1">
+                                                {option.description}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            ))}
+
+            {/* 제출 버튼 (Phase 2에서 활성화 예정) */}
+            <div className="pt-2 border-t border-border-default">
+                <button
+                    disabled
+                    className="w-full px-4 py-2 bg-accent-primary/30 text-text-secondary rounded-lg text-sm font-medium cursor-not-allowed"
+                >
+                    답변 제출 (준비 중)
+                </button>
+                <p className="text-xs text-text-tertiary text-center mt-2">
+                    Phase 2에서 답변 전송 기능이 추가됩니다
+                </p>
             </div>
         </div>
     );
