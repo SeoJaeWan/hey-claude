@@ -1,12 +1,14 @@
 import Message from "../message";
-import type {Message as MessageType} from "../../../types";
+import type {Message as MessageType, QuestionAnswer} from "../../../types";
 
 interface MessageListProps {
     messages: MessageType[];
     isStreaming?: boolean;
+    isSubmitting?: boolean;
+    onQuestionSubmit?: (sessionId: string, toolUseId: string, answers: QuestionAnswer[]) => void;
 }
 
-const MessageList = ({messages, isStreaming = false}: MessageListProps) => {
+const MessageList = ({messages, isStreaming = false, isSubmitting = false, onQuestionSubmit}: MessageListProps) => {
     return (
         <div className="flex-1 overflow-y-auto px-6 py-6 pb-36">
             <div className="max-w-3xl mx-auto flex flex-col gap-6">
@@ -23,7 +25,13 @@ const MessageList = ({messages, isStreaming = false}: MessageListProps) => {
                         const isLastAssistant = index === messages.length - 1 && message.role === "assistant";
                         const showStreaming = isLastAssistant && isStreaming;
 
-                        return <Message key={message.id} message={message} isStreaming={showStreaming} />;
+                        return <Message
+                            key={message.id}
+                            message={message}
+                            isStreaming={showStreaming}
+                            isSubmitting={isSubmitting}
+                            onQuestionSubmit={onQuestionSubmit}
+                        />;
                     })
                 )}
             </div>

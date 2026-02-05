@@ -160,6 +160,58 @@ export const useSendMessageStream = () => {
                                             };
                                         }
                                     });
+                                }
+                                // tool_use 처리
+                                else if (data.type === "tool_use") {
+                                    console.log("[SSE] tool_use detected:", data);
+
+                                    if (data.tool_name === "AskUserQuestion") {
+                                        console.log("[SSE] AskUserQuestion detected, questions:", data.tool_input.questions);
+
+                                        const questionData = {
+                                            tool_use_id: data.tool_use_id,
+                                            questions: data.tool_input.questions
+                                        };
+
+                                        // React Query 캐시 업데이트
+                                        queryClient.setQueryData(["session", sessionId], (old: any) => {
+                                            if (!old) return old;
+
+                                            const messages = old.messages || [];
+                                            const lastMsg = messages[messages.length - 1];
+
+                                            if (lastMsg?.id === tempAssistantMsgId) {
+                                                return {
+                                                    ...old,
+                                                    messages: [
+                                                        ...messages.slice(0, -1),
+                                                        {
+                                                            ...lastMsg,
+                                                            content: assistantContent,
+                                                            isQuestion: true,
+                                                            questionData
+                                                        }
+                                                    ]
+                                                };
+                                            } else {
+                                                return {
+                                                    ...old,
+                                                    messages: [
+                                                        ...messages,
+                                                        {
+                                                            id: tempAssistantMsgId,
+                                                            session_id: sessionId,
+                                                            role: "assistant",
+                                                            content: assistantContent,
+                                                            timestamp: new Date().toISOString(),
+                                                            isQuestion: true,
+                                                            questionData
+                                                        }
+                                                    ]
+                                                };
+                                            }
+                                        });
+                                    }
                                 } else if (data.type === "error") {
                                     setError(data.content || data.error);
                                     setIsStreaming(false);
@@ -205,6 +257,7 @@ export const useSubmitQuestionAnswer = () => {
 
     const submitAnswer = useCallback(
         async (sessionId: string, toolUseId: string, answers: {questionIndex: number; question: string; selectedOptions: string[]}[]) => {
+            console.log("[SUBMIT] Starting submitAnswer", {sessionId, toolUseId, answersCount: answers.length});
             setIsSubmitting(true);
             setError(null);
 
@@ -213,11 +266,13 @@ export const useSubmitQuestionAnswer = () => {
 
             try {
                 // 1. POST 요청
+                console.log("[SUBMIT] Sending fetch request to /api/chat/tool-result");
                 const response = await fetch("/api/chat/tool-result", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({sessionId, toolUseId, answers})
                 });
+                console.log("[SUBMIT] Fetch response received", {ok: response.ok, status: response.status});
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -228,23 +283,32 @@ export const useSubmitQuestionAnswer = () => {
                 if (!reader) {
                     throw new Error("ReadableStream not supported");
                 }
+                console.log("[SUBMIT] Reader obtained, starting SSE stream");
 
                 const decoder = new TextDecoder();
                 let buffer = "";
                 let assistantContent = "";
 
+                console.log("[SUBMIT] Entering while loop");
                 while (true) {
+                    console.log("[SUBMIT] Calling reader.read()...");
                     const {done, value} = await reader.read();
-                    if (done) break;
+                    console.log("[SUBMIT] reader.read() returned", {done, valueLength: value?.length});
+                    if (done) {
+                        console.log("[SUBMIT] Stream done, breaking loop");
+                        break;
+                    }
 
                     buffer += decoder.decode(value, {stream: true});
                     const lines = buffer.split("\n\n");
                     buffer = lines.pop() || "";
+                    console.log("[SUBMIT] Processed lines", {lineCount: lines.length});
 
                     for (const line of lines) {
                         if (line.startsWith("data: ")) {
                             try {
                                 const data = JSON.parse(line.slice(6));
+                                console.log("[SUBMIT] SSE event received", {type: data.type});
 
                                 // chunk 처리
                                 if (data.type === "chunk" || data.type === "question") {
@@ -287,9 +351,6 @@ export const useSubmitQuestionAnswer = () => {
 
                                     if (data.tool_name === "AskUserQuestion") {
                                         console.log("[SSE] AskUserQuestion detected, questions:", data.tool_input.questions);
-
-                                        const questionInfo = `\n❓ 질문이 있습니다. 아래 선택지 중 하나를 골라주세요.\n`;
-                                        assistantContent += questionInfo;
 
                                         const questionData = {
                                             tool_use_id: data.tool_use_id,
@@ -376,6 +437,23 @@ export const useSubmitQuestionAnswer = () => {
                                 // done
                                 else if (data.type === "done") {
                                     setIsSubmitting(false);
+
+                                    // 모든 questionData를 가진 메시지를 questionSubmitted: true로 설정
+                                    queryClient.setQueryData(["session", sessionId], (old: any) => {
+                                        if (!old) return old;
+
+                                        const messages = old.messages || [];
+                                        const updatedMessages = messages.map((msg: any) => {
+                                            // questionData가 있고 아직 제출되지 않은 메시지를 찾아서 제출 완료로 설정
+                                            if (msg.questionData && !msg.questionSubmitted) {
+                                                return {...msg, questionSubmitted: true};
+                                            }
+                                            return msg;
+                                        });
+
+                                        return {...old, messages: updatedMessages};
+                                    });
+
                                     queryClient.invalidateQueries({queryKey: ["session", sessionId]});
                                 }
                             } catch (e) {

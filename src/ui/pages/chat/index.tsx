@@ -5,7 +5,8 @@ import MessageList from "../../components/chat/messageList";
 import ChatInput from "../../components/chat/input";
 import {DEFAULT_CLAUDE_MODEL, DEFAULT_PROVIDER} from "../../data/models";
 import {useSessionQuery} from "../../hooks/apis/queries/session";
-import {useMessagesQuery, useSendMessageStream} from "../../hooks/apis/queries/message";
+import {useMessagesQuery, useSendMessageStream, useSubmitQuestionAnswer} from "../../hooks/apis/queries/message";
+import type {QuestionAnswer} from "../../types";
 import {useTranslation} from "../../contexts/language";
 
 const ChatPage = () => {
@@ -22,6 +23,12 @@ const ChatPage = () => {
 
     // 메시지 전송 및 스트리밍
     const {isStreaming, sendMessage} = useSendMessageStream();
+
+    // 답변 제출
+    const {submitAnswer, isSubmitting} = useSubmitQuestionAnswer();
+
+    // 미답변 질문 체크
+    const hasUnansweredQuestion = messages?.some(msg => msg.questionData && !msg.questionSubmitted) || false;
 
     // 드래그 앤 드롭 이미지 상태
     const [images, setImages] = useState<{id: string; src: string; file: File}[]>([]);
@@ -91,6 +98,10 @@ const ChatPage = () => {
         setImages([]);
     };
 
+    const handleQuestionSubmit = (sessionId: string, toolUseId: string, answers: QuestionAnswer[]) => {
+        submitAnswer(sessionId, toolUseId, answers);
+    };
+
     // Cleanup blob URLs on unmount
     useEffect(() => {
         return () => {
@@ -104,14 +115,19 @@ const ChatPage = () => {
             <PageHeader title={sessionName} onMenuClick={onMenuClick} />
 
             {/* Messages - Optimistic update로 메시지가 React Query 캐시에서 자동 관리됨 */}
-            <MessageList messages={messages} isStreaming={isStreaming} />
+            <MessageList
+                messages={messages}
+                isStreaming={isStreaming}
+                isSubmitting={isSubmitting}
+                onQuestionSubmit={handleQuestionSubmit}
+            />
 
             {/* Input - 임시로 claude-code 모드로 고정 */}
             <ChatInput
                 mode="claude-code"
                 sessionId={sessionId}
                 onSend={handleSend}
-                disabled={isStreaming}
+                disabled={isStreaming || hasUnansweredQuestion}
                 showSummaryButton={true}
                 showFeedbackToggle={true}
                 selectedModel={DEFAULT_CLAUDE_MODEL}

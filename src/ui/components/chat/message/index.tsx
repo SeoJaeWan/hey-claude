@@ -1,42 +1,26 @@
 import FileChangesCard from "../fileChangesCard";
 import QuestionCard from "../questionCard";
-import {useSubmitQuestionAnswer} from "../../../hooks/apis/queries/message";
-import {useQueryClient} from "@tanstack/react-query";
 import type {Message as MessageType, QuestionAnswer} from "../../../types";
 
 interface MessageProps {
     message: MessageType;
     isStreaming?: boolean;
+    isSubmitting?: boolean;
+    onQuestionSubmit?: (sessionId: string, toolUseId: string, answers: QuestionAnswer[]) => void;
 }
 
-const Message = ({message, isStreaming = false}: MessageProps) => {
+const Message = ({message, isStreaming = false, isSubmitting = false, onQuestionSubmit}: MessageProps) => {
     const isUser = message.role === "user";
     const showCursor = !isUser && isStreaming;
 
-    const {submitAnswer} = useSubmitQuestionAnswer();
-    const queryClient = useQueryClient();
-
     const handleQuestionSubmit = (answers: QuestionAnswer[]) => {
-        if (!message.questionData) return;
+        if (!message.questionData || !onQuestionSubmit) return;
 
-        submitAnswer(
+        onQuestionSubmit(
             message.sessionId,
             message.questionData.tool_use_id,
             answers
         );
-
-        // 제출 상태를 메시지에 반영 (React Query 캐시 업데이트)
-        queryClient.setQueryData(['session', message.sessionId], (old: any) => {
-            if (!old) return old;
-
-            const messages = old.messages || [];
-            const updatedMessages = messages.map((msg: any) =>
-                msg.id === message.id
-                    ? {...msg, questionSubmitted: true}
-                    : msg
-            );
-            return {...old, messages: updatedMessages};
-        });
     };
 
     return (
@@ -64,6 +48,7 @@ const Message = ({message, isStreaming = false}: MessageProps) => {
                             <QuestionCard
                                 questionData={message.questionData}
                                 isSubmitted={message.questionSubmitted}
+                                isSubmitting={isSubmitting}
                                 onSubmit={handleQuestionSubmit}
                             />
                         </>

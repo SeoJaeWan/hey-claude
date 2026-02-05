@@ -5,10 +5,11 @@ import type {QuestionData, QuestionAnswer} from '../../../types';
 interface QuestionCardProps {
     questionData: QuestionData;
     isSubmitted?: boolean;
+    isSubmitting?: boolean;
     onSubmit?: (answers: QuestionAnswer[]) => void;
 }
 
-const QuestionCard = ({questionData, isSubmitted = false, onSubmit}: QuestionCardProps) => {
+const QuestionCard = ({questionData, isSubmitted = false, isSubmitting = false, onSubmit}: QuestionCardProps) => {
     const {questions} = questionData;
 
     // 각 질문별 선택 상태 관리
@@ -20,7 +21,6 @@ const QuestionCard = ({questionData, isSubmitted = false, onSubmit}: QuestionCar
         return initial;
     });
 
-    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleOptionClick = (questionIdx: number, optionIdx: number, multiSelect: boolean) => {
         setSelections(prev => {
@@ -53,8 +53,6 @@ const QuestionCard = ({questionData, isSubmitted = false, onSubmit}: QuestionCar
     const handleSubmit = () => {
         if (!isValid || isSubmitting || isSubmitted) return;
 
-        setIsSubmitting(true);
-
         // selections → QuestionAnswer[] 변환
         const answers: QuestionAnswer[] = questions.map((q, idx) => ({
             questionIndex: idx,
@@ -63,7 +61,6 @@ const QuestionCard = ({questionData, isSubmitted = false, onSubmit}: QuestionCar
         }));
 
         onSubmit?.(answers);
-        // isSubmitting 상태는 부모에서 관리 (Message 컴포넌트)
     };
 
     return (
