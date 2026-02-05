@@ -18,9 +18,13 @@ import cliRouter from "./routes/cli.js";
 
 // Import services
 import { initDatabase } from "./services/database.js";
+import { getAllCommands, type CommandInfo } from "./services/claude-commands-detector.js";
 
 const __filename = fileURLToPath(import.meta.url);
 dirname(__filename); // used for fileURLToPath compatibility
+
+// Commands cache (future use: 프론트엔드 자동완성에서 사용 예정)
+export let commandsCache: CommandInfo[] = [];
 
 const DEFAULT_PORT = 7777;
 const MAX_PORT = 7877;
@@ -86,6 +90,26 @@ const setupCleanup = (projectPath: string): void => {
 
     process.on("SIGINT", cleanup);
     process.on("SIGTERM", cleanup);
+};
+
+/**
+ * 명령어 캐시 갱신 (백그라운드)
+ */
+const refreshCommandsCache = async (projectPath: string): Promise<void> => {
+    try {
+        console.log("Refreshing commands cache...");
+        const commands = await getAllCommands(projectPath);
+        commandsCache = commands;
+
+        const localCount = commands.filter((cmd) => cmd.source === "local").length;
+        const builtinCount = commands.filter((cmd) => cmd.source === "builtin").length;
+
+        console.log(
+            `Commands cache refreshed: ${localCount} local, ${builtinCount} builtin (total: ${commands.length})`
+        );
+    } catch (error) {
+        console.error("Failed to refresh commands cache:", error);
+    }
 };
 
 const app = express();
@@ -178,6 +202,9 @@ const startServer = async (
 
         // 3. 서버 시작
         await startServer(projectPath, DEFAULT_PORT);
+
+        // 4. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
+        refreshCommandsCache(projectPath);
     } catch (err) {
         console.error("Failed to start server:", err);
         process.exit(1);
