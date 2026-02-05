@@ -1,4 +1,4 @@
-import {useState, useEffect, useMemo} from "react";
+import {useState, useEffect} from "react";
 import {useParams, useOutletContext} from "react-router-dom";
 import PageHeader from "../../components/commons/pageHeader";
 import MessageList from "../../components/chat/messageList";
@@ -21,7 +21,7 @@ const ChatPage = () => {
     const {data: messages} = useMessagesQuery(sessionId);
 
     // 메시지 전송 및 스트리밍
-    const {isStreaming, streamContent, sendMessage} = useSendMessageStream();
+    const {isStreaming, sendMessage} = useSendMessageStream();
 
     // 드래그 앤 드롭 이미지 상태
     const [images, setImages] = useState<{id: string; src: string; file: File}[]>([]);
@@ -83,30 +83,13 @@ const ChatPage = () => {
         const allImages = [...(inputImages || []), ...images.map(img => img.file)];
 
         // 메시지 전송 (SSE 스트리밍) - 이미지 포함
+        // Optimistic update로 메시지가 즉시 표시됨
         await sendMessage(sessionId, content, allImages.length > 0 ? allImages : undefined);
 
         // 전송 후 이미지 정리
         images.forEach(img => URL.revokeObjectURL(img.src));
         setImages([]);
     };
-
-    // 스트리밍 중인 임시 메시지 생성
-    const displayMessages = useMemo(() => {
-        const allMessages = [...messages];
-
-        // 스트리밍 중인 메시지를 마지막에 추가
-        if (isStreaming && streamContent) {
-            allMessages.push({
-                id: "streaming",
-                sessionId: sessionId || "",
-                role: "assistant" as const,
-                content: streamContent,
-                createdAt: new Date().toISOString()
-            });
-        }
-
-        return allMessages;
-    }, [messages, isStreaming, streamContent, sessionId]);
 
     // Cleanup blob URLs on unmount
     useEffect(() => {
@@ -120,8 +103,8 @@ const ChatPage = () => {
             {/* Header with Session Name */}
             <PageHeader title={sessionName} onMenuClick={onMenuClick} />
 
-            {/* Messages */}
-            <MessageList messages={displayMessages} isStreaming={isStreaming} />
+            {/* Messages - Optimistic update로 메시지가 React Query 캐시에서 자동 관리됨 */}
+            <MessageList messages={messages} isStreaming={isStreaming} />
 
             {/* Input - 임시로 claude-code 모드로 고정 */}
             <ChatInput

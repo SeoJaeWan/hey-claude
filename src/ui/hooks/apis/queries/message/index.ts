@@ -39,7 +39,7 @@ export const useMessagesQuery = (sessionId: string | undefined) => {
     };
 };
 
-// SSE 스트리밍 메시지 전송
+// SSE 스트리밍 메시지 전송 (Optimistic Update)
 export const useSendMessageStream = () => {
     const [isStreaming, setIsStreaming] = useState(false);
     const [streamContent, setStreamContent] = useState("");
@@ -52,12 +52,36 @@ export const useSendMessageStream = () => {
             setStreamContent("");
             setError(null);
 
+            // 임시 메시지 ID 생성
+            const tempUserMsgId = `temp-user-${Date.now()}`;
+            const tempAssistantMsgId = `temp-assistant-${Date.now()}`;
+
             try {
                 // 이미지를 Base64로 인코딩
                 let imageData: string[] | undefined;
                 if (images && images.length > 0) {
                     imageData = await Promise.all(images.map(fileToBase64));
                 }
+
+                // Optimistic Update: 사용자 메시지 즉시 추가
+                queryClient.setQueryData(['session', sessionId], (old: any) => {
+                    if (!old) return old;
+
+                    const userMessage = {
+                        id: tempUserMsgId,
+                        session_id: sessionId,
+                        role: 'user',
+                        content: prompt,
+                        images: imageData ? JSON.stringify(imageData) : null,
+                        timestamp: new Date().toISOString()
+                    };
+
+                    return {
+                        ...old,
+                        messages: [...(old.messages || []), userMessage]
+                    };
+                });
+
                 const response = await fetch("/api/chat/stream", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
@@ -75,6 +99,7 @@ export const useSendMessageStream = () => {
 
                 const decoder = new TextDecoder();
                 let buffer = "";
+                let assistantContent = "";
 
                 while (true) {
                     const {done, value} = await reader.read();
@@ -92,13 +117,51 @@ export const useSendMessageStream = () => {
                                 const data = JSON.parse(line.slice(6));
 
                                 if (data.type === "chunk") {
-                                    setStreamContent(prev => prev + data.content);
+                                    assistantContent += data.content;
+                                    setStreamContent(assistantContent);
+
+                                    // Optimistic Update: assistant 메시지 업데이트
+                                    queryClient.setQueryData(['session', sessionId], (old: any) => {
+                                        if (!old) return old;
+
+                                        const messages = old.messages || [];
+                                        const lastMsg = messages[messages.length - 1];
+
+                                        // 마지막 메시지가 임시 assistant 메시지면 업데이트
+                                        if (lastMsg?.id === tempAssistantMsgId) {
+                                            return {
+                                                ...old,
+                                                messages: [
+                                                    ...messages.slice(0, -1),
+                                                    {...lastMsg, content: assistantContent}
+                                                ]
+                                            };
+                                        } else {
+                                            // 아직 assistant 메시지가 없으면 추가
+                                            return {
+                                                ...old,
+                                                messages: [
+                                                    ...messages,
+                                                    {
+                                                        id: tempAssistantMsgId,
+                                                        session_id: sessionId,
+                                                        role: 'assistant',
+                                                        content: assistantContent,
+                                                        timestamp: new Date().toISOString()
+                                                    }
+                                                ]
+                                            };
+                                        }
+                                    });
                                 } else if (data.type === "error") {
                                     setError(data.content || data.error);
                                     setIsStreaming(false);
+                                    // 에러 시 optimistic update rollback
+                                    queryClient.invalidateQueries({queryKey: ["session", sessionId]});
                                 } else if (data.type === "done") {
                                     setIsStreaming(false);
-                                    // 세션 정보 갱신 (메시지 포함)
+                                    // done 시에도 refetch (서버에서 실제 ID 받기 위해)
+                                    // 하지만 UI는 이미 optimistic update로 표시되어 있음
                                     queryClient.invalidateQueries({queryKey: ["session", sessionId]});
                                 }
                             } catch (e) {
@@ -111,6 +174,8 @@ export const useSendMessageStream = () => {
                 console.error("SSE streaming error:", err);
                 setError(err instanceof Error ? err.message : "Unknown error");
                 setIsStreaming(false);
+                // 에러 시 optimistic update rollback
+                queryClient.invalidateQueries({queryKey: ["session", sessionId]});
             }
         },
         [queryClient]
