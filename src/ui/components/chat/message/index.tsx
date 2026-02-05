@@ -13,7 +13,7 @@ const Message = ({message, isStreaming = false}: MessageProps) => {
     const isUser = message.role === "user";
     const showCursor = !isUser && isStreaming;
 
-    const {submitAnswer, isSubmitting} = useSubmitQuestionAnswer();
+    const {submitAnswer} = useSubmitQuestionAnswer();
     const queryClient = useQueryClient();
 
     const handleQuestionSubmit = (answers: QuestionAnswer[]) => {

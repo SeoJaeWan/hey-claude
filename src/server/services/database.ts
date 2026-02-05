@@ -64,6 +64,7 @@ const createTables = (database: Database.Database): void => {
             changes TEXT,
             timestamp TEXT NOT NULL,
             question_submitted INTEGER DEFAULT 0,
+            question_data TEXT,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
 
@@ -79,6 +80,17 @@ const createTables = (database: Database.Database): void => {
         // 컬럼이 이미 존재하면 오류 무시
         if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
             console.error("[DATABASE] Error adding question_submitted column:", error);
+        }
+    }
+
+    // question_data 컬럼 추가 (마이그레이션)
+    try {
+        database.exec(`ALTER TABLE messages ADD COLUMN question_data TEXT`);
+        console.log("[DATABASE] Added question_data column to messages table");
+    } catch (error) {
+        // 컬럼이 이미 존재하면 오류 무시
+        if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
+            console.error("[DATABASE] Error adding question_data column:", error);
         }
     }
 

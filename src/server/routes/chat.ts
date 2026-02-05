@@ -140,6 +140,7 @@ router.post("/stream", async (req, res) => {
         let assistantResponse = "";
         let claudeSessionId = session.claude_session_id;
         let buffer = "";
+        let questionData: any = null; // AskUserQuestion 데이터 저장
 
         // stdout 스트리밍
         claude.stdout?.on("data", (data) => {
@@ -203,16 +204,14 @@ router.post("/stream", async (req, res) => {
                                     input: contentBlock.input
                                 });
 
-                                // TODO Phase 2: tool_use 감지 후 처리
-                                // 1. 프로세스 종료 여부 결정 (tool_name에 따라 처리)
-                                // 2. tool_result 전송 로직 (별도 엔드포인트 필요)
-                                //    - POST /api/chat/tool-result 엔드포인트 생성
-                                //    - --resume <claude_session_id> 사용하여 세션 재개
-                                //    - tool_result를 stdin으로 전송
-                                // 3. 세션 상태 관리
-                                //    - DB에 awaiting_tool_result 상태 추가
-                                //    - 대기 중인 tool_use_id 저장
-                                //    - 타임아웃 처리
+                                // AskUserQuestion 데이터 저장 (DB에 함께 저장하기 위함)
+                                if (contentBlock.name === "AskUserQuestion") {
+                                    questionData = {
+                                        tool_use_id: contentBlock.id,
+                                        questions: contentBlock.input.questions
+                                    };
+                                    console.log("[CHAT STREAM] AskUserQuestion saved for DB storage");
+                                }
                             }
                         }
                     }
@@ -249,16 +248,23 @@ router.post("/stream", async (req, res) => {
 
             if (code === 0 && assistantResponse) {
                 const assistantMessageId = randomUUID();
+                const questionDataJson = questionData ? JSON.stringify(questionData) : null;
+
                 db.prepare(
-                    `INSERT INTO messages (id, session_id, role, content, timestamp)
-                     VALUES (?, ?, ?, ?, ?)`
+                    `INSERT INTO messages (id, session_id, role, content, timestamp, question_data)
+                     VALUES (?, ?, ?, ?, ?, ?)`
                 ).run(
                     assistantMessageId,
                     sessionId,
                     "assistant",
                     assistantResponse,
-                    new Date().toISOString()
+                    new Date().toISOString(),
+                    questionDataJson
                 );
+
+                if (questionDataJson) {
+                    console.log("[CHAT STREAM] Saved message with questionData to DB");
+                }
 
                 // Claude 세션 ID 업데이트
                 if (claudeSessionId && claudeSessionId !== session.claude_session_id) {
