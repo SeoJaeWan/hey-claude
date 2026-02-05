@@ -23,6 +23,7 @@ try {
 export const callClaude = (options: ClaudeOptions): ChildProcess => {
     const { prompt, sessionId, cwd } = options;
 
+    // -p 플래그 사용 (stream-json 출력 형식을 위해 필요)
     const args = sessionId
         ? ["--resume", sessionId, "-p", prompt, "--output-format", "stream-json", "--verbose"]
         : ["-p", prompt, "--output-format", "stream-json", "--verbose"];
@@ -33,7 +34,7 @@ export const callClaude = (options: ClaudeOptions): ChildProcess => {
     // shell: false로 직접 실행 (Windows .exe 파일 직접 호출)
     const claude = spawn(claudePath!, args, {
         cwd: cwd || process.cwd(),
-        stdio: ['ignore', 'pipe', 'pipe'], // stdin을 ignore (프로세스 대기 방지)
+        stdio: ['ignore', 'pipe', 'pipe'], // stdin: ignore (프로세스 hang 방지)
         shell: false, // shell 없이 직접 실행
         windowsHide: false, // 디버깅을 위해 일단 표시
     });
@@ -42,6 +43,10 @@ export const callClaude = (options: ClaudeOptions): ChildProcess => {
     console.log("[CLAUDE SERVICE] Process spawned, PID:", claude.pid);
     console.log("[CLAUDE SERVICE] stdout exists:", !!claude.stdout);
     console.log("[CLAUDE SERVICE] stderr exists:", !!claude.stderr);
+
+    // stdin은 pipe로 열려있지만, -p 플래그로 프롬프트를 전달했으므로
+    // 일반적인 경우 stdin 사용하지 않음
+    // tool_use/tool_result를 위해 stdin은 열어둠
 
     // 즉시 close/error 이벤트 등록 (디버깅용)
     claude.on("spawn", () => {
