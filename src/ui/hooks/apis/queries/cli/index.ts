@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../../utils/api';
-import type { CliProvider } from '../../../../types';
+import type { CliProvider, CommandInfo } from '../../../../types';
 
 // CLI 도구 상태 조회
 export const useCliStatusQuery = () => {
@@ -21,5 +21,19 @@ export const useCliStatusQuery = () => {
     refetchOnReconnect: false,
     // 초기 로드 시에는 자동으로 조회
     staleTime: Infinity,
+  });
+};
+
+// 명령어 목록 조회
+export const useCommandsQuery = () => {
+  return useQuery({
+    queryKey: ["cli", "commands"],
+    queryFn: async () => {
+      const res = await api.get<CommandInfo[]>("/cli/commands");
+      if (res.error) throw new Error(res.error.message);
+      return res.data || [];
+    },
+    staleTime: 1000 * 60 * 30, // 30분 캐시
+    gcTime: 1000 * 60 * 60, // 1시간 유지 (cacheTime -> gcTime으로 변경)
   });
 };

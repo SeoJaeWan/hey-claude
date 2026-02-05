@@ -12,6 +12,7 @@ import {getProviderModels, PROVIDERS, DEFAULT_CLAUDE_MODEL, DEFAULT_PROVIDER, DE
 import {getCommands, AutocompleteItem} from "../../../data/autocomplete";
 import {useProjectPath} from "../../../hooks/apis/queries/project";
 import {useSnippetsQuery} from "../../../hooks/apis/queries/snippet";
+import {useCommandsQuery} from "../../../hooks/apis/queries/cli";
 import {useFeedbackMutation, useSummaryMutation} from "../../../hooks/apis/queries/ai";
 import {useTranslation} from "../../../contexts/language";
 
@@ -59,6 +60,7 @@ const ChatInput = ({
     const providerModels = useMemo(() => getProviderModels(t), [t]);
     const {data: projectPath} = useProjectPath();
     const {data: snippets = []} = useSnippetsQuery(projectPath);
+    const {data: apiCommands} = useCommandsQuery();
     const feedbackMutation = useFeedbackMutation();
     const summaryMutation = useSummaryMutation();
     const [content, setContent] = useState("");
@@ -81,6 +83,12 @@ const ChatInput = ({
     const [highlightedIndex, setHighlightedIndex] = useState(0);
     const [triggerChar, setTriggerChar] = useState<"/" | "@" | null>(null);
     const [triggerStartPos, setTriggerStartPos] = useState(0);
+
+    // Commands 메모이제이션 (API 데이터 우선, 없으면 fallback)
+    const commands = useMemo(() =>
+        getCommands(t, apiCommands),
+        [t, apiCommands]
+    );
 
     // 모든 이미지 합치기 (외부 images + 내부 localImages)
     const allImages = [...images, ...localImages];
@@ -215,7 +223,6 @@ const ChatInput = ({
         if (currentWord.startsWith("/")) {
             setTriggerChar("/");
             setTriggerStartPos(lastBreakIndex + 1);
-            const commands = getCommands(t);
             const filtered = commands.filter((cmd) => cmd.trigger.toLowerCase().includes(currentWord.toLowerCase()));
             setAutocompleteItems(filtered);
             setShowAutocomplete(filtered.length > 0);

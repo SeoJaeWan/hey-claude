@@ -85,6 +85,15 @@ export interface CliProvider {
     description?: string;
 }
 
+// CLI 명령어
+export interface CommandInfo {
+    name: string;
+    trigger: string;
+    description: string;
+    source: 'local' | 'builtin';
+    allowedTools?: string[];
+}
+
 // 설정
 export interface Config {
     version: number;
