@@ -257,7 +257,6 @@ export const useSubmitQuestionAnswer = () => {
 
     const submitAnswer = useCallback(
         async (sessionId: string, toolUseId: string, answers: {questionIndex: number; question: string; selectedOptions: string[]}[]) => {
-            console.log("[SUBMIT] Starting submitAnswer", {sessionId, toolUseId, answersCount: answers.length});
             setIsSubmitting(true);
             setError(null);
 
@@ -266,13 +265,11 @@ export const useSubmitQuestionAnswer = () => {
 
             try {
                 // 1. POST 요청
-                console.log("[SUBMIT] Sending fetch request to /api/chat/tool-result");
                 const response = await fetch("/api/chat/tool-result", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({sessionId, toolUseId, answers})
                 });
-                console.log("[SUBMIT] Fetch response received", {ok: response.ok, status: response.status});
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -283,32 +280,25 @@ export const useSubmitQuestionAnswer = () => {
                 if (!reader) {
                     throw new Error("ReadableStream not supported");
                 }
-                console.log("[SUBMIT] Reader obtained, starting SSE stream");
 
                 const decoder = new TextDecoder();
                 let buffer = "";
                 let assistantContent = "";
 
-                console.log("[SUBMIT] Entering while loop");
                 while (true) {
-                    console.log("[SUBMIT] Calling reader.read()...");
                     const {done, value} = await reader.read();
-                    console.log("[SUBMIT] reader.read() returned", {done, valueLength: value?.length});
                     if (done) {
-                        console.log("[SUBMIT] Stream done, breaking loop");
                         break;
                     }
 
                     buffer += decoder.decode(value, {stream: true});
                     const lines = buffer.split("\n\n");
                     buffer = lines.pop() || "";
-                    console.log("[SUBMIT] Processed lines", {lineCount: lines.length});
 
                     for (const line of lines) {
                         if (line.startsWith("data: ")) {
                             try {
                                 const data = JSON.parse(line.slice(6));
-                                console.log("[SUBMIT] SSE event received", {type: data.type});
 
                                 // chunk 처리
                                 if (data.type === "chunk" || data.type === "question") {

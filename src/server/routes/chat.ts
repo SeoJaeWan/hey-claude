@@ -1,9 +1,9 @@
-import { Router, type Router as RouterType } from "express";
-import { randomUUID } from "crypto";
-import { type ChildProcess } from "child_process";
-import { callClaude } from "../services/claude.js";
-import { getRecentContext } from "../services/context.js";
-import { getDatabase } from "../services/database.js";
+import {Router, type Router as RouterType} from "express";
+import {randomUUID} from "crypto";
+import {type ChildProcess} from "child_process";
+import {callClaude} from "../services/claude.js";
+import {getRecentContext} from "../services/context.js";
+import {getDatabase} from "../services/database.js";
 
 const router: RouterType = Router();
 
@@ -25,10 +25,12 @@ interface QuestionAnswer {
 
 // 유틸리티: 사용자 답변을 자연어 프롬프트로 변환
 const formatAnswersAsPrompt = (answers: QuestionAnswer[], toolUseId: string): string => {
-    const formattedAnswers = answers.map((a) => {
-        const selections = a.selectedOptions.join(', ');
-        return `${a.questionIndex + 1}. ${a.question}\n   답변: ${selections}`;
-    }).join('\n\n');
+    const formattedAnswers = answers
+        .map(a => {
+            const selections = a.selectedOptions.join(", ");
+            return `${a.questionIndex + 1}. ${a.question}\n   답변: ${selections}`;
+        })
+        .join("\n\n");
 
     return `[Tool Result: AskUserQuestion]
 Tool Use ID: ${toolUseId}
@@ -43,15 +45,15 @@ ${formattedAnswers}
 // POST /api/chat/stream - SSE 스트리밍
 router.post("/stream", async (req, res) => {
     try {
-        const { sessionId, prompt, images } = req.body;
-        console.log("[CHAT STREAM] Request received:", { sessionId, prompt: prompt?.substring(0, 50) });
+        const {sessionId, prompt, images} = req.body;
+        console.log("[CHAT STREAM] Request received:", {sessionId, prompt: prompt?.substring(0, 50)});
 
         if (!sessionId || !prompt) {
             res.status(400).json({
                 error: {
                     code: "MISSING_PARAMETERS",
-                    message: "sessionId and prompt are required",
-                },
+                    message: "sessionId and prompt are required"
+                }
             });
             return;
         }
@@ -90,15 +92,11 @@ router.post("/stream", async (req, res) => {
         const projectPath = process.cwd();
 
         // 세션 조회
-        const session = db
-            .prepare("SELECT * FROM sessions WHERE id = ?")
-            .get(sessionId) as any;
+        const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as any;
 
         if (!session) {
             console.log("[CHAT STREAM] Session not found:", sessionId);
-            res.write(
-                `data: ${JSON.stringify({ type: "error", error: "Session not found" })}\n\n`
-            );
+            res.write(`data: ${JSON.stringify({type: "error", error: "Session not found"})}\n\n`);
             res.end();
             return;
         }
@@ -118,7 +116,7 @@ router.post("/stream", async (req, res) => {
         ).run(userMessageId, sessionId, "user", prompt, imagesJson, new Date().toISOString());
 
         // 컨텍스트 주입
-        const context = await getRecentContext({ projectPath, sessionId });
+        const context = await getRecentContext({projectPath, sessionId});
         const finalPrompt = context ? `${context}\n\n${prompt}` : prompt;
         console.log("[CHAT STREAM] Context prepared, final prompt length:", finalPrompt.length);
 
@@ -130,7 +128,7 @@ router.post("/stream", async (req, res) => {
         const claude = callClaude({
             prompt: finalPrompt,
             sessionId: session.claude_session_id,
-            cwd: projectPath,
+            cwd: projectPath
         });
 
         // 활성 프로세스 등록
@@ -143,7 +141,7 @@ router.post("/stream", async (req, res) => {
         let questionData: any = null; // AskUserQuestion 데이터 저장
 
         // stdout 스트리밍
-        claude.stdout?.on("data", (data) => {
+        claude.stdout?.on("data", data => {
             const chunk = data.toString();
             console.log("[CHAT STREAM] stdout chunk received, length:", chunk.length);
 
@@ -178,11 +176,11 @@ router.post("/stream", async (req, res) => {
 
                                 if (hasNumberedOptions) {
                                     // 질문으로 표시
-                                    res.write(`data: ${JSON.stringify({ type: "question", content: text })}\n\n`);
+                                    res.write(`data: ${JSON.stringify({type: "question", content: text})}\n\n`);
                                     console.log("[CHAT STREAM] Question detected, length:", text.length);
                                 } else {
                                     // 일반 텍스트
-                                    res.write(`data: ${JSON.stringify({ type: "chunk", content: text })}\n\n`);
+                                    res.write(`data: ${JSON.stringify({type: "chunk", content: text})}\n\n`);
                                     console.log("[CHAT STREAM] Extracted text, length:", text.length);
                                 }
                             }
@@ -219,7 +217,7 @@ router.post("/stream", async (req, res) => {
                     // type: "result"에서 최종 응답 추출 (fallback)
                     else if (parsed.type === "result" && parsed.result && !assistantResponse) {
                         assistantResponse = parsed.result;
-                        res.write(`data: ${JSON.stringify({ type: "chunk", content: parsed.result })}\n\n`);
+                        res.write(`data: ${JSON.stringify({type: "chunk", content: parsed.result})}\n\n`);
                         console.log("[CHAT STREAM] Extracted result text, length:", parsed.result.length);
                     }
                 } catch (e) {
@@ -229,16 +227,14 @@ router.post("/stream", async (req, res) => {
         });
 
         // stderr 스트리밍
-        claude.stderr?.on("data", (data) => {
+        claude.stderr?.on("data", data => {
             const error = data.toString();
             console.log("[CHAT STREAM] stderr received:", error);
-            res.write(
-                `data: ${JSON.stringify({ type: "error", content: error })}\n\n`
-            );
+            res.write(`data: ${JSON.stringify({type: "error", content: error})}\n\n`);
         });
 
         // 종료 시 assistant 메시지 저장
-        claude.on("close", (code) => {
+        claude.on("close", code => {
             console.log("[CHAT STREAM] Claude process closed with code:", code);
             console.log("[CHAT STREAM] Response length:", assistantResponse.length);
 
@@ -253,14 +249,7 @@ router.post("/stream", async (req, res) => {
                 db.prepare(
                     `INSERT INTO messages (id, session_id, role, content, timestamp, question_data)
                      VALUES (?, ?, ?, ?, ?, ?)`
-                ).run(
-                    assistantMessageId,
-                    sessionId,
-                    "assistant",
-                    assistantResponse,
-                    new Date().toISOString(),
-                    questionDataJson
-                );
+                ).run(assistantMessageId, sessionId, "assistant", assistantResponse, new Date().toISOString(), questionDataJson);
 
                 if (questionDataJson) {
                     console.log("[CHAT STREAM] Saved message with questionData to DB");
@@ -269,22 +258,22 @@ router.post("/stream", async (req, res) => {
                 // Claude 세션 ID 업데이트
                 if (claudeSessionId && claudeSessionId !== session.claude_session_id) {
                     console.log("[CHAT STREAM] Updating session with new claude_session_id:", claudeSessionId);
-                    db.prepare(
-                        "UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?"
-                    ).run(claudeSessionId, new Date().toISOString(), sessionId);
+                    db.prepare("UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?").run(
+                        claudeSessionId,
+                        new Date().toISOString(),
+                        sessionId
+                    );
                 }
             }
 
-            res.write(`data: ${JSON.stringify({ type: "done", code })}\n\n`);
+            res.write(`data: ${JSON.stringify({type: "done", code})}\n\n`);
             res.end();
         });
 
         // 에러 핸들링
-        claude.on("error", (error) => {
+        claude.on("error", error => {
             console.log("[CHAT STREAM] Claude process error:", error);
-            res.write(
-                `data: ${JSON.stringify({ type: "error", error: error.message })}\n\n`
-            );
+            res.write(`data: ${JSON.stringify({type: "error", error: error.message})}\n\n`);
             res.end();
         });
 
@@ -298,7 +287,7 @@ router.post("/stream", async (req, res) => {
         res.write(
             `data: ${JSON.stringify({
                 type: "error",
-                error: error instanceof Error ? error.message : "Unknown error",
+                error: error instanceof Error ? error.message : "Unknown error"
             })}\n\n`
         );
         res.end();
@@ -308,7 +297,7 @@ router.post("/stream", async (req, res) => {
 // POST /api/chat/tool-result - AskUserQuestion 답변 제출
 router.post("/tool-result", async (req, res) => {
     try {
-        const { sessionId, toolUseId, answers } = req.body as ToolResultRequest;
+        const {sessionId, toolUseId, answers} = req.body as ToolResultRequest;
         console.log("[TOOL RESULT] Request received:", {
             sessionId,
             toolUseId,
@@ -317,7 +306,7 @@ router.post("/tool-result", async (req, res) => {
 
         // 1. 입력 검증
         if (!sessionId || !answers || !Array.isArray(answers) || answers.length === 0) {
-            console.log("[TOOL RESULT] Invalid request:", { sessionId, answers });
+            console.log("[TOOL RESULT] Invalid request:", {sessionId, answers});
             res.status(400).json({
                 error: {
                     code: "INVALID_REQUEST",
@@ -329,9 +318,7 @@ router.post("/tool-result", async (req, res) => {
 
         // 2. 세션 조회
         const db = getDatabase();
-        const session = db
-            .prepare("SELECT * FROM sessions WHERE id = ?")
-            .get(sessionId) as any;
+        const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as any;
 
         if (!session) {
             console.log("[TOOL RESULT] Session not found:", sessionId);
@@ -370,7 +357,7 @@ router.post("/tool-result", async (req, res) => {
         const claude = callClaude({
             prompt: answerPrompt,
             sessionId: session.claude_session_id,
-            cwd: projectPath,
+            cwd: projectPath
         });
 
         // 활성 프로세스 등록
@@ -382,7 +369,7 @@ router.post("/tool-result", async (req, res) => {
         let buffer = "";
 
         // 6. stdout 스트리밍 (기존 /stream 로직 재사용)
-        claude.stdout?.on("data", (data) => {
+        claude.stdout?.on("data", data => {
             const chunk = data.toString();
             console.log("[TOOL RESULT] stdout chunk received, length:", chunk.length);
 
@@ -414,10 +401,10 @@ router.post("/tool-result", async (req, res) => {
                                 const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(text);
 
                                 if (hasNumberedOptions) {
-                                    res.write(`data: ${JSON.stringify({ type: "question", content: text })}\n\n`);
+                                    res.write(`data: ${JSON.stringify({type: "question", content: text})}\n\n`);
                                     console.log("[TOOL RESULT] Question detected, length:", text.length);
                                 } else {
-                                    res.write(`data: ${JSON.stringify({ type: "chunk", content: text })}\n\n`);
+                                    res.write(`data: ${JSON.stringify({type: "chunk", content: text})}\n\n`);
                                     console.log("[TOOL RESULT] Extracted text, length:", text.length);
                                 }
                             }
@@ -444,7 +431,7 @@ router.post("/tool-result", async (req, res) => {
                     // type: "result"에서 최종 응답 추출 (fallback)
                     else if (parsed.type === "result" && parsed.result && !assistantResponse) {
                         assistantResponse = parsed.result;
-                        res.write(`data: ${JSON.stringify({ type: "chunk", content: parsed.result })}\n\n`);
+                        res.write(`data: ${JSON.stringify({type: "chunk", content: parsed.result})}\n\n`);
                         console.log("[TOOL RESULT] Extracted result text, length:", parsed.result.length);
                     }
                 } catch (e) {
@@ -454,16 +441,14 @@ router.post("/tool-result", async (req, res) => {
         });
 
         // 7. stderr 스트리밍
-        claude.stderr?.on("data", (data) => {
+        claude.stderr?.on("data", data => {
             const error = data.toString();
             console.log("[TOOL RESULT] stderr received:", error);
-            res.write(
-                `data: ${JSON.stringify({ type: "error", content: error })}\n\n`
-            );
+            res.write(`data: ${JSON.stringify({type: "error", content: error})}\n\n`);
         });
 
         // 8. 종료 시 assistant 메시지 저장
-        claude.on("close", (code) => {
+        claude.on("close", code => {
             console.log("[TOOL RESULT] Claude process closed with code:", code);
             console.log("[TOOL RESULT] Response length:", assistantResponse.length);
 
@@ -476,41 +461,36 @@ router.post("/tool-result", async (req, res) => {
                 db.prepare(
                     `INSERT INTO messages (id, session_id, role, content, timestamp)
                      VALUES (?, ?, ?, ?, ?)`
-                ).run(
-                    assistantMessageId,
-                    sessionId,
-                    "assistant",
-                    assistantResponse,
-                    new Date().toISOString()
-                );
+                ).run(assistantMessageId, sessionId, "assistant", assistantResponse, new Date().toISOString());
 
                 // Claude 세션 ID 업데이트
                 if (claudeSessionId && claudeSessionId !== session.claude_session_id) {
                     console.log("[TOOL RESULT] Updating session with new claude_session_id:", claudeSessionId);
-                    db.prepare(
-                        "UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?"
-                    ).run(claudeSessionId, new Date().toISOString(), sessionId);
+                    db.prepare("UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?").run(
+                        claudeSessionId,
+                        new Date().toISOString(),
+                        sessionId
+                    );
                 }
             }
 
-            res.write(`data: ${JSON.stringify({ type: "done", code })}\n\n`);
+            res.write(`data: ${JSON.stringify({type: "done", code})}\n\n`);
             res.end();
         });
 
         // 9. 에러 핸들링
-        claude.on("error", (error) => {
+        claude.on("error", error => {
             console.log("[TOOL RESULT] Claude process error:", error);
-            res.write(
-                `data: ${JSON.stringify({ type: "error", error: error.message })}\n\n`
-            );
+            res.write(`data: ${JSON.stringify({type: "error", error: error.message})}\n\n`);
             res.end();
         });
 
         // 10. 클라이언트 연결 종료 시
-        req.on("close", () => {
-            console.log("[TOOL RESULT] Client connection closed, killing claude process");
-            claude.kill();
-        });
+        // FIXME: req.on("close")가 즉시 발생하는 문제로 임시 비활성화
+        // req.on("close", () => {
+        //     console.log("[TOOL RESULT] Client connection closed, killing claude process");
+        //     claude.kill();
+        // });
     } catch (error) {
         console.log("[TOOL RESULT] Exception caught:", error);
         res.status(500).json({
@@ -525,14 +505,14 @@ router.post("/tool-result", async (req, res) => {
 // POST /api/chat/send - fallback (non-streaming)
 router.post("/send", async (req, res) => {
     try {
-        const { sessionId, prompt, images } = req.body;
+        const {sessionId, prompt, images} = req.body;
 
         if (!sessionId || !prompt) {
             res.status(400).json({
                 error: {
                     code: "MISSING_PARAMETERS",
-                    message: "sessionId and prompt are required",
-                },
+                    message: "sessionId and prompt are required"
+                }
             });
             return;
         }
@@ -541,16 +521,14 @@ router.post("/send", async (req, res) => {
         const projectPath = process.cwd();
 
         // 세션 조회
-        const session = db
-            .prepare("SELECT * FROM sessions WHERE id = ?")
-            .get(sessionId) as any;
+        const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as any;
 
         if (!session) {
             res.status(404).json({
                 error: {
                     code: "SESSION_NOT_FOUND",
-                    message: "Session not found",
-                },
+                    message: "Session not found"
+                }
             });
             return;
         }
@@ -564,20 +542,20 @@ router.post("/send", async (req, res) => {
         ).run(userMessageId, sessionId, "user", prompt, imagesJson, new Date().toISOString());
 
         // 컨텍스트 주입
-        const context = await getRecentContext({ projectPath, sessionId });
+        const context = await getRecentContext({projectPath, sessionId});
         const finalPrompt = context ? `${context}\n\n${prompt}` : prompt;
 
         // Claude CLI 호출
         const claude = callClaude({
             prompt: finalPrompt,
             sessionId: session.claude_session_id,
-            cwd: projectPath,
+            cwd: projectPath
         });
 
         let assistantResponse = "";
         let claudeSessionId = session.claude_session_id;
 
-        claude.stdout?.on("data", (data) => {
+        claude.stdout?.on("data", data => {
             const chunk = data.toString();
             assistantResponse += chunk;
 
@@ -587,37 +565,33 @@ router.post("/send", async (req, res) => {
             }
         });
 
-        claude.on("close", (code) => {
+        claude.on("close", code => {
             if (code === 0 && assistantResponse) {
                 const assistantMessageId = randomUUID();
                 db.prepare(
                     `INSERT INTO messages (id, session_id, role, content, timestamp)
                      VALUES (?, ?, ?, ?, ?)`
-                ).run(
-                    assistantMessageId,
-                    sessionId,
-                    "assistant",
-                    assistantResponse,
-                    new Date().toISOString()
-                );
+                ).run(assistantMessageId, sessionId, "assistant", assistantResponse, new Date().toISOString());
 
                 if (claudeSessionId && claudeSessionId !== session.claude_session_id) {
-                    db.prepare(
-                        "UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?"
-                    ).run(claudeSessionId, new Date().toISOString(), sessionId);
+                    db.prepare("UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?").run(
+                        claudeSessionId,
+                        new Date().toISOString(),
+                        sessionId
+                    );
                 }
 
                 res.json({
                     data: {
-                        response: assistantResponse,
-                    },
+                        response: assistantResponse
+                    }
                 });
             } else {
                 res.status(500).json({
                     error: {
                         code: "CLAUDE_CLI_FAILED",
-                        message: `Claude CLI exited with code ${code}`,
-                    },
+                        message: `Claude CLI exited with code ${code}`
+                    }
                 });
             }
         });
@@ -625,8 +599,8 @@ router.post("/send", async (req, res) => {
         res.status(500).json({
             error: {
                 code: "CHAT_SEND_FAILED",
-                message: error instanceof Error ? error.message : "Unknown error",
-            },
+                message: error instanceof Error ? error.message : "Unknown error"
+            }
         });
     }
 });
