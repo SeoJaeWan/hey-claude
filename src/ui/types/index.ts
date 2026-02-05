@@ -37,6 +37,12 @@ export interface QuestionData {
     questions: QuestionItem[];
 }
 
+export interface QuestionAnswer {
+    questionIndex: number;       // 질문 인덱스 (0부터 시작)
+    question: string;            // 질문 텍스트 (원본)
+    selectedOptions: string[];   // 선택된 옵션들 (label 배열)
+}
+
 export interface Message {
     id: string;
     sessionId: string;
@@ -47,6 +53,7 @@ export interface Message {
     createdAt: string;
     isQuestion?: boolean; // 질문 여부 (type: "question"일 때 true)
     questionData?: QuestionData; // AskUserQuestion 구조화된 데이터
+    questionSubmitted?: boolean; // 답변 제출 여부
 }
 
 // 도구 사용 내역

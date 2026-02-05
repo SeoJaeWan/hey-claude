@@ -1,6 +1,8 @@
 import FileChangesCard from "../fileChangesCard";
 import QuestionCard from "../questionCard";
-import type {Message as MessageType} from "../../../types";
+import {useSubmitQuestionAnswer} from "../../../hooks/apis/queries/message";
+import {useQueryClient} from "@tanstack/react-query";
+import type {Message as MessageType, QuestionAnswer} from "../../../types";
 
 interface MessageProps {
     message: MessageType;
@@ -10,6 +12,32 @@ interface MessageProps {
 const Message = ({message, isStreaming = false}: MessageProps) => {
     const isUser = message.role === "user";
     const showCursor = !isUser && isStreaming;
+
+    const {submitAnswer, isSubmitting} = useSubmitQuestionAnswer();
+    const queryClient = useQueryClient();
+
+    const handleQuestionSubmit = (answers: QuestionAnswer[]) => {
+        if (!message.questionData) return;
+
+        submitAnswer(
+            message.sessionId,
+            message.questionData.tool_use_id,
+            answers
+        );
+
+        // 제출 상태를 메시지에 반영 (React Query 캐시 업데이트)
+        queryClient.setQueryData(['session', message.sessionId], (old: any) => {
+            if (!old) return old;
+
+            const messages = old.messages || [];
+            const updatedMessages = messages.map((msg: any) =>
+                msg.id === message.id
+                    ? {...msg, questionSubmitted: true}
+                    : msg
+            );
+            return {...old, messages: updatedMessages};
+        });
+    };
 
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -33,7 +61,11 @@ const Message = ({message, isStreaming = false}: MessageProps) => {
                                     {message.content}
                                 </p>
                             )}
-                            <QuestionCard questionData={message.questionData} />
+                            <QuestionCard
+                                questionData={message.questionData}
+                                isSubmitted={message.questionSubmitted}
+                                onSubmit={handleQuestionSubmit}
+                            />
                         </>
                     ) : (
                         <p className={`text-base leading-relaxed whitespace-pre-wrap break-words ${showCursor ? "streaming-cursor" : ""}`}>

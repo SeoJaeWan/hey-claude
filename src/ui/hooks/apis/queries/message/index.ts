@@ -292,3 +292,210 @@ export const useSendMessageStream = () => {
 
     return {isStreaming, streamContent, error, sendMessage, reset};
 };
+
+// 답변 제출 Hook
+export const useSubmitQuestionAnswer = () => {
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const queryClient = useQueryClient();
+
+    const submitAnswer = useCallback(async (
+        sessionId: string,
+        toolUseId: string,
+        answers: {questionIndex: number; question: string; selectedOptions: string[]}[]
+    ) => {
+        setIsSubmitting(true);
+        setError(null);
+
+        // 임시 메시지 ID 생성
+        const tempAssistantMsgId = `temp-assistant-${Date.now()}`;
+
+        try {
+            // 1. POST 요청
+            const response = await fetch("/api/chat/tool-result", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({sessionId, toolUseId, answers})
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            // 2. SSE 스트리밍 처리
+            const reader = response.body?.getReader();
+            if (!reader) {
+                throw new Error("ReadableStream not supported");
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let assistantContent = "";
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, {stream: true});
+                const lines = buffer.split("\n\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (line.startsWith("data: ")) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+
+                            // chunk 처리
+                            if (data.type === "chunk" || data.type === "question") {
+                                assistantContent += data.content;
+
+                                // React Query 캐시 업데이트
+                                queryClient.setQueryData(['session', sessionId], (old: any) => {
+                                    if (!old) return old;
+
+                                    const messages = old.messages || [];
+                                    const lastMsg = messages[messages.length - 1];
+
+                                    // 마지막 메시지가 임시 assistant 메시지면 업데이트
+                                    if (lastMsg?.id === tempAssistantMsgId) {
+                                        return {
+                                            ...old,
+                                            messages: [
+                                                ...messages.slice(0, -1),
+                                                {...lastMsg, content: assistantContent}
+                                            ]
+                                        };
+                                    } else {
+                                        // 아직 assistant 메시지가 없으면 추가
+                                        return {
+                                            ...old,
+                                            messages: [
+                                                ...messages,
+                                                {
+                                                    id: tempAssistantMsgId,
+                                                    session_id: sessionId,
+                                                    role: 'assistant',
+                                                    content: assistantContent,
+                                                    timestamp: new Date().toISOString()
+                                                }
+                                            ]
+                                        };
+                                    }
+                                });
+                            }
+                            // tool_use 처리 (새 AskUserQuestion 감지)
+                            else if (data.type === "tool_use") {
+                                console.log("[SSE] tool_use detected:", data);
+
+                                if (data.tool_name === "AskUserQuestion") {
+                                    console.log("[SSE] AskUserQuestion detected, questions:", data.tool_input.questions);
+
+                                    const questionInfo = `\n❓ 질문이 있습니다. 아래 선택지 중 하나를 골라주세요.\n`;
+                                    assistantContent += questionInfo;
+
+                                    const questionData = {
+                                        tool_use_id: data.tool_use_id,
+                                        questions: data.tool_input.questions
+                                    };
+
+                                    // React Query 캐시 업데이트
+                                    queryClient.setQueryData(['session', sessionId], (old: any) => {
+                                        if (!old) return old;
+
+                                        const messages = old.messages || [];
+                                        const lastMsg = messages[messages.length - 1];
+
+                                        if (lastMsg?.id === tempAssistantMsgId) {
+                                            return {
+                                                ...old,
+                                                messages: [
+                                                    ...messages.slice(0, -1),
+                                                    {
+                                                        ...lastMsg,
+                                                        content: assistantContent,
+                                                        isQuestion: true,
+                                                        questionData
+                                                    }
+                                                ]
+                                            };
+                                        } else {
+                                            return {
+                                                ...old,
+                                                messages: [
+                                                    ...messages,
+                                                    {
+                                                        id: tempAssistantMsgId,
+                                                        session_id: sessionId,
+                                                        role: 'assistant',
+                                                        content: assistantContent,
+                                                        timestamp: new Date().toISOString(),
+                                                        isQuestion: true,
+                                                        questionData
+                                                    }
+                                                ]
+                                            };
+                                        }
+                                    });
+                                } else {
+                                    const toolInfo = `\n🔧 [${data.tool_name}] 실행 중...\n`;
+                                    assistantContent += toolInfo;
+
+                                    queryClient.setQueryData(['session', sessionId], (old: any) => {
+                                        if (!old) return old;
+
+                                        const messages = old.messages || [];
+                                        const lastMsg = messages[messages.length - 1];
+
+                                        if (lastMsg?.id === tempAssistantMsgId) {
+                                            return {
+                                                ...old,
+                                                messages: [
+                                                    ...messages.slice(0, -1),
+                                                    {...lastMsg, content: assistantContent}
+                                                ]
+                                            };
+                                        } else {
+                                            return {
+                                                ...old,
+                                                messages: [
+                                                    ...messages,
+                                                    {
+                                                        id: tempAssistantMsgId,
+                                                        session_id: sessionId,
+                                                        role: 'assistant',
+                                                        content: assistantContent,
+                                                        timestamp: new Date().toISOString()
+                                                    }
+                                                ]
+                                            };
+                                        }
+                                    });
+                                }
+                            }
+                            // error
+                            else if (data.type === "error") {
+                                setError(data.content || data.error);
+                                setIsSubmitting(false);
+                                console.error("[SSE] Error:", data.content || data.error);
+                            }
+                            // done
+                            else if (data.type === "done") {
+                                setIsSubmitting(false);
+                                queryClient.invalidateQueries({queryKey: ["session", sessionId]});
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse SSE data:", e);
+                        }
+                    }
+                }
+            }
+
+        } catch (err) {
+            console.error("Submit error:", err);
+            setError(err instanceof Error ? err.message : "Unknown error");
+            setIsSubmitting(false);
+        }
+    }, [queryClient]);
+
+    return {submitAnswer, isSubmitting, error};
+};

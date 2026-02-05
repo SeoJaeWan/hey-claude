@@ -63,12 +63,24 @@ const createTables = (database: Database.Database): void => {
             images TEXT,
             changes TEXT,
             timestamp TEXT NOT NULL,
+            question_submitted INTEGER DEFAULT 0,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
 
         CREATE INDEX IF NOT EXISTS idx_messages_session
             ON messages(session_id);
     `);
+
+    // 기존 테이블에 question_submitted 컬럼 추가 (마이그레이션)
+    try {
+        database.exec(`ALTER TABLE messages ADD COLUMN question_submitted INTEGER DEFAULT 0`);
+        console.log("[DATABASE] Added question_submitted column to messages table");
+    } catch (error) {
+        // 컬럼이 이미 존재하면 오류 무시
+        if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
+            console.error("[DATABASE] Error adding question_submitted column:", error);
+        }
+    }
 
     // tool_usages 테이블
     database.exec(`

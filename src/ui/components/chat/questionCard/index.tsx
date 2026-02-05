@@ -1,12 +1,14 @@
 import {HelpCircle, CheckCircle2, Circle} from 'lucide-react';
 import {useState} from 'react';
-import type {QuestionData} from '../../../types';
+import type {QuestionData, QuestionAnswer} from '../../../types';
 
 interface QuestionCardProps {
     questionData: QuestionData;
+    isSubmitted?: boolean;
+    onSubmit?: (answers: QuestionAnswer[]) => void;
 }
 
-const QuestionCard = ({questionData}: QuestionCardProps) => {
+const QuestionCard = ({questionData, isSubmitted = false, onSubmit}: QuestionCardProps) => {
     const {questions} = questionData;
 
     // 각 질문별 선택 상태 관리
@@ -17,6 +19,8 @@ const QuestionCard = ({questionData}: QuestionCardProps) => {
         });
         return initial;
     });
+
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const handleOptionClick = (questionIdx: number, optionIdx: number, multiSelect: boolean) => {
         setSelections(prev => {
@@ -38,6 +42,28 @@ const QuestionCard = ({questionData}: QuestionCardProps) => {
 
     const isSelected = (questionIdx: number, optionIdx: number) => {
         return selections[questionIdx]?.includes(optionIdx) || false;
+    };
+
+    // 유효성 검증: 모든 질문에 답변했는지
+    const isValid = questions.every((_, idx) => {
+        return selections[idx] && selections[idx].length > 0;
+    });
+
+    // 제출 핸들러
+    const handleSubmit = () => {
+        if (!isValid || isSubmitting || isSubmitted) return;
+
+        setIsSubmitting(true);
+
+        // selections → QuestionAnswer[] 변환
+        const answers: QuestionAnswer[] = questions.map((q, idx) => ({
+            questionIndex: idx,
+            question: q.question,
+            selectedOptions: selections[idx].map(optIdx => q.options[optIdx].label)
+        }));
+
+        onSubmit?.(answers);
+        // isSubmitting 상태는 부모에서 관리 (Message 컴포넌트)
     };
 
     return (
@@ -109,17 +135,26 @@ const QuestionCard = ({questionData}: QuestionCardProps) => {
                 </div>
             ))}
 
-            {/* 제출 버튼 (Phase 2에서 활성화 예정) */}
+            {/* 제출 버튼 */}
             <div className="pt-2 border-t border-border-default">
                 <button
-                    disabled
-                    className="w-full px-4 py-2 bg-accent-primary/30 text-text-secondary rounded-lg text-sm font-medium cursor-not-allowed"
+                    onClick={handleSubmit}
+                    disabled={!isValid || isSubmitting || isSubmitted}
+                    className={`
+                        w-full px-4 py-2 rounded-lg text-sm font-medium transition-all
+                        ${isValid && !isSubmitting && !isSubmitted
+                            ? 'bg-accent-primary hover:bg-accent-primary/90 text-white cursor-pointer'
+                            : 'bg-accent-primary/30 text-text-secondary cursor-not-allowed'
+                        }
+                    `}
                 >
-                    답변 제출 (준비 중)
+                    {isSubmitting ? "제출 중..." : isSubmitted ? "제출 완료" : "답변 제출"}
                 </button>
-                <p className="text-xs text-text-tertiary text-center mt-2">
-                    Phase 2에서 답변 전송 기능이 추가됩니다
-                </p>
+                {!isValid && !isSubmitted && (
+                    <p className="text-xs text-text-tertiary text-center mt-2">
+                        모든 질문에 답변해주세요
+                    </p>
+                )}
             </div>
         </div>
     );
