@@ -145,41 +145,47 @@ export const useGlobalSSE = (projectPath?: string) => {
         // EventSource 연결
         const eventSource = new EventSource("/api/sse/global");
 
-        eventSource.addEventListener("session_status_update", (event) => {
+        eventSource.addEventListener("message", (event) => {
             try {
-                const data = JSON.parse(event.data);
-                const {sessionId, streamStatus, backgroundTasksCount} = data;
+                const parsed = JSON.parse(event.data);
 
-                // React Query 캐시 업데이트
-                queryClient.setQueryData(["sessions", projectPath], (old: Session[] | undefined) => {
-                    if (!old) return old;
+                // session_status 타입만 처리
+                if (parsed.type === "session_status") {
+                    const {sessionId, status, backgroundTasksCount} = parsed.data;
 
-                    const updated = old.map((session) => {
-                        if (session.id === sessionId) {
-                            return {
-                                ...session,
-                                streamStatus: streamStatus as SessionStreamStatus,
-                                backgroundTasksCount
-                            };
-                        }
-                        return session;
+                    console.log("[Global SSE] Received session_status:", {sessionId, status, backgroundTasksCount});
+
+                    // React Query 캐시 업데이트
+                    queryClient.setQueryData(["sessions", projectPath], (old: Session[] | undefined) => {
+                        if (!old) return old;
+
+                        const updated = old.map((session) => {
+                            if (session.id === sessionId) {
+                                return {
+                                    ...session,
+                                    streamStatus: status as SessionStreamStatus,
+                                    backgroundTasksCount
+                                };
+                            }
+                            return session;
+                        });
+
+                        // 정렬 적용
+                        return sortSessions(updated);
                     });
 
-                    // 정렬 적용
-                    return sortSessions(updated);
-                });
-
-                // 세션 상세 캐시도 업데이트
-                queryClient.setQueryData(["session", sessionId], (old: Session | undefined) => {
-                    if (!old) return old;
-                    return {
-                        ...old,
-                        streamStatus: streamStatus as SessionStreamStatus,
-                        backgroundTasksCount
-                    };
-                });
+                    // 세션 상세 캐시도 업데이트
+                    queryClient.setQueryData(["session", sessionId], (old: Session | undefined) => {
+                        if (!old) return old;
+                        return {
+                            ...old,
+                            streamStatus: status as SessionStreamStatus,
+                            backgroundTasksCount
+                        };
+                    });
+                }
             } catch (error) {
-                console.error("Failed to parse session_status_update:", error);
+                console.error("Failed to parse global SSE message:", error);
             }
         });
 
