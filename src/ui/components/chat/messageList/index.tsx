@@ -5,12 +5,11 @@ import type {Message as MessageType, QuestionAnswer} from "../../../types";
 interface MessageListProps {
     messages: MessageType[];
     isStreaming?: boolean;
-    isWaitingForResponse?: boolean;
     isSubmitting?: boolean;
     onQuestionSubmit?: (sessionId: string, toolUseId: string, answers: QuestionAnswer[]) => void;
 }
 
-const MessageList = ({messages, isStreaming = false, isWaitingForResponse = false, isSubmitting = false, onQuestionSubmit}: MessageListProps) => {
+const MessageList = ({messages, isStreaming = false, isSubmitting = false, onQuestionSubmit}: MessageListProps) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const [isUserScrolling, setIsUserScrolling] = useState(false);
     const userScrollTimeoutRef = useRef<NodeJS.Timeout>();
@@ -69,13 +68,11 @@ const MessageList = ({messages, isStreaming = false, isWaitingForResponse = fals
                         // 마지막 assistant 메시지에만 isStreaming 전달
                         const isLastAssistant = index === messages.length - 1 && message.role === "assistant";
                         const showStreaming = isLastAssistant && isStreaming;
-                        const showWaiting = isLastAssistant && isWaitingForResponse;
 
                         return <Message
                             key={message.id}
                             message={message}
                             isStreaming={showStreaming}
-                            isWaitingForResponse={showWaiting}
                             isSubmitting={isSubmitting}
                             onQuestionSubmit={onQuestionSubmit}
                         />;

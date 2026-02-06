@@ -8,7 +8,6 @@ import type {Message as MessageType, QuestionAnswer} from "../../../types";
 interface MessageProps {
     message: MessageType;
     isStreaming?: boolean;
-    isWaitingForResponse?: boolean;
     isSubmitting?: boolean;
     onQuestionSubmit?: (sessionId: string, toolUseId: string, answers: QuestionAnswer[]) => void;
 }
@@ -39,9 +38,9 @@ const markdownComponents = {
     ),
 };
 
-const Message = ({message, isStreaming = false, isWaitingForResponse = false, isSubmitting = false, onQuestionSubmit}: MessageProps) => {
+const Message = ({message, isStreaming = false, isSubmitting = false, onQuestionSubmit}: MessageProps) => {
     const isUser = message.role === "user";
-    const showCursor = !isUser && (isStreaming || isWaitingForResponse);
+    const showCursor = !isUser && isStreaming;
 
     const handleQuestionSubmit = (answers: QuestionAnswer[]) => {
         if (!message.questionData || !onQuestionSubmit) return;

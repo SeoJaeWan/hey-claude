@@ -61,6 +61,14 @@ const isSubagentStop = (text: string): boolean => {
     return subagentStopPatterns.some(pattern => pattern.test(text));
 };
 
+// 유틸리티: SSE 메시지 전송 및 즉시 flush
+const writeSSE = (res: any, data: any): void => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (typeof res.flush === 'function') {
+        res.flush();
+    }
+};
+
 // POST /api/chat/stream - SSE 스트리밍
 router.post("/stream", async (req, res) => {
     try {
@@ -105,7 +113,11 @@ router.post("/stream", async (req, res) => {
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
         console.log("[CHAT STREAM] SSE headers set");
+
+        // Send initial connection event and flush immediately
+        writeSSE(res, {type: "connected"});
 
         // Set status to streaming
         sessionStatusManager.setStatus(sessionId, "streaming");
@@ -118,7 +130,7 @@ router.post("/stream", async (req, res) => {
 
         if (!session) {
             console.log("[CHAT STREAM] Session not found:", sessionId);
-            res.write(`data: ${JSON.stringify({type: "error", error: "Session not found"})}\n\n`);
+            writeSSE(res, {type: "error", error: "Session not found"});
             res.end();
             return;
         }
@@ -207,11 +219,11 @@ router.post("/stream", async (req, res) => {
 
                                 if (hasNumberedOptions) {
                                     // 질문으로 표시
-                                    res.write(`data: ${JSON.stringify({type: "question", content: formattedText})}\n\n`);
+                                    writeSSE(res, {type: "question", content: formattedText});
                                     console.log("[CHAT STREAM] Question detected, length:", formattedText.length);
                                 } else {
                                     // 일반 텍스트
-                                    res.write(`data: ${JSON.stringify({type: "chunk", content: formattedText})}\n\n`);
+                                    writeSSE(res, {type: "chunk", content: formattedText});
                                     console.log("[CHAT STREAM] Extracted text, length:", formattedText.length);
                                 }
                             }
@@ -232,7 +244,7 @@ router.post("/stream", async (req, res) => {
                                 }
 
                                 // SSE로 tool_use 정보 전송
-                                res.write(`data: ${JSON.stringify(toolUseData)}\n\n`);
+                                writeSSE(res, toolUseData);
                                 console.log("[CHAT STREAM] tool_use detected:", {
                                     id: contentBlock.id,
                                     name: contentBlock.name,
@@ -254,7 +266,7 @@ router.post("/stream", async (req, res) => {
                     // type: "result"에서 최종 응답 추출 (fallback)
                     else if (parsed.type === "result" && parsed.result && !assistantResponse) {
                         assistantResponse = parsed.result;
-                        res.write(`data: ${JSON.stringify({type: "chunk", content: parsed.result})}\n\n`);
+                        writeSSE(res, {type: "chunk", content: parsed.result});
                         console.log("[CHAT STREAM] Extracted result text, length:", parsed.result.length);
                     }
                 } catch (e) {
@@ -267,7 +279,7 @@ router.post("/stream", async (req, res) => {
         claude.stderr?.on("data", data => {
             const error = data.toString();
             console.log("[CHAT STREAM] stderr received:", error);
-            res.write(`data: ${JSON.stringify({type: "error", content: error})}\n\n`);
+            writeSSE(res, {type: "error", content: error});
         });
 
         // 종료 시 assistant 메시지 저장
@@ -309,14 +321,14 @@ router.post("/stream", async (req, res) => {
                 }
             }
 
-            res.write(`data: ${JSON.stringify({type: "done", code})}\n\n`);
+            writeSSE(res, {type: "done", code});
             res.end();
         });
 
         // 에러 핸들링
         claude.on("error", error => {
             console.log("[CHAT STREAM] Claude process error:", error);
-            res.write(`data: ${JSON.stringify({type: "error", error: error.message})}\n\n`);
+            writeSSE(res, {type: "error", error: error.message});
             res.end();
         });
 
@@ -327,12 +339,10 @@ router.post("/stream", async (req, res) => {
         });
     } catch (error) {
         console.log("[CHAT STREAM] Exception caught:", error);
-        res.write(
-            `data: ${JSON.stringify({
-                type: "error",
-                error: error instanceof Error ? error.message : "Unknown error"
-            })}\n\n`
-        );
+        writeSSE(res, {
+            type: "error",
+            error: error instanceof Error ? error.message : "Unknown error"
+        });
         res.end();
     }
 });
