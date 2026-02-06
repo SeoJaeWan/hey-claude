@@ -229,6 +229,13 @@
   }
 }
 
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
 /* 유틸리티 */
 @layer utilities {
   .text-gradient {
@@ -245,6 +252,10 @@
 
   .animate-pulse {
     animation: pulse 2s infinite;
+  }
+
+  .animate-ping {
+    animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
   }
 
   .streaming-cursor::after {

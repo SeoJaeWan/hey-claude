@@ -3,14 +3,7 @@ import Button from "../../commons/button";
 import SessionList from "../../session/list";
 import {cn} from "../../../utils/cn";
 import {useTranslation} from "../../../contexts/language";
-
-interface Session {
-    id: string;
-    name: string;
-    type: "claude-code" | "quick-chat";
-    source: "web" | "terminal";
-    updatedAt: string;
-}
+import type {Session} from "../../../types";
 
 interface SidebarProps {
     sessions?: Session[];
@@ -19,6 +12,7 @@ interface SidebarProps {
     onSessionRename?: (id: string, currentName: string) => void;
     onSessionDelete?: (id: string) => void;
     onNewSession?: () => void;
+    onOpenInNewTab?: (id: string) => void;
     currentPage?: "chat" | "settings";
     theme?: "light" | "dark";
     onThemeToggle?: () => void;
@@ -35,6 +29,7 @@ const Sidebar = (props: SidebarProps) => {
         onSessionRename = () => {},
         onSessionDelete = () => {},
         onNewSession = () => {},
+        onOpenInNewTab = () => {},
         currentPage = "chat",
         theme = "light",
         onThemeToggle = () => {},
@@ -90,6 +85,7 @@ const Sidebar = (props: SidebarProps) => {
                     onSessionClick={onSessionClick}
                     onSessionRename={onSessionRename}
                     onSessionDelete={onSessionDelete}
+                    onOpenInNewTab={onOpenInNewTab}
                 />
             </div>
 

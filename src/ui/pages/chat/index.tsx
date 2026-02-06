@@ -4,7 +4,7 @@ import PageHeader from "../../components/commons/pageHeader";
 import MessageList from "../../components/chat/messageList";
 import ChatInput from "../../components/chat/input";
 import {DEFAULT_CLAUDE_MODEL, DEFAULT_PROVIDER} from "../../data/models";
-import {useSessionQuery} from "../../hooks/apis/queries/session";
+import {useSessionQuery, useSSEConnection} from "../../hooks/apis/queries/session";
 import {useMessagesQuery, useSendMessageStream, useSubmitQuestionAnswer} from "../../hooks/apis/queries/message";
 import type {QuestionAnswer} from "../../types";
 import {useTranslation} from "../../contexts/language";
@@ -18,14 +18,20 @@ const ChatPage = () => {
     const {data: session} = useSessionQuery(sessionId);
     const sessionName = session?.name || `Session ${sessionId}`;
 
+    // SSE 연결 (메시지 스트리밍 수신)
+    useSSEConnection(sessionId);
+
     // 메시지 목록 조회
     const {data: messages} = useMessagesQuery(sessionId);
 
-    // 메시지 전송 및 스트리밍
-    const {isStreaming, sendMessage} = useSendMessageStream();
+    // 메시지 전송
+    const {isSending, sendMessage} = useSendMessageStream();
 
     // 답변 제출
     const {submitAnswer, isSubmitting} = useSubmitQuestionAnswer();
+
+    // 스트리밍 상태 확인
+    const isStreaming = session?.streamStatus === "streaming";
 
     // 요청 대기 상태 (fetch 시작 ~ 첫 SSE 데이터 수신)
     const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
@@ -137,7 +143,7 @@ const ChatPage = () => {
                 mode="claude-code"
                 sessionId={sessionId}
                 onSend={handleSend}
-                disabled={isStreaming || hasUnansweredQuestion}
+                disabled={isSending || isStreaming || hasUnansweredQuestion}
                 showSummaryButton={true}
                 showFeedbackToggle={true}
                 selectedModel={DEFAULT_CLAUDE_MODEL}

@@ -3,25 +3,51 @@ import {useState} from "react";
 import SessionMenu from "../menu";
 import {formatRelativeTime} from "../../../utils/timeFormat";
 import {useTranslation} from "../../../contexts/language";
+import type {Session} from "../../../types";
 
 interface SessionCardProps {
-    session: {
-        id: string;
-        name: string;
-        type: "claude-code" | "quick-chat";
-        source: "terminal" | "web";
-        updatedAt: string;
-    };
+    session: Session;
     isActive?: boolean;
     onClick?: () => void;
     onRename?: (sessionId: string, currentName: string) => void;
     onDelete?: (sessionId: string) => void;
+    onOpenInNewTab?: () => void;
 }
 
-const SessionCard = ({session, isActive = false, onClick = () => {}, onRename = () => {}, onDelete = () => {}}: SessionCardProps) => {
+const SessionCard = ({
+    session,
+    isActive = false,
+    onClick = () => {},
+    onRename = () => {},
+    onDelete = () => {},
+    onOpenInNewTab = () => {}
+}: SessionCardProps) => {
     const {t} = useTranslation();
     const typeIcon = session.type === "claude-code" ? <Terminal size={14} /> : <MessageCircle size={14} />;
     const [menuOpen, setMenuOpen] = useState(false);
+
+    // Determine session state
+    const hasBackgroundTasks = (session.backgroundTasksCount ?? 0) > 0;
+    const isStreaming = session.streamStatus === "streaming";
+    const isIdle = !hasBackgroundTasks && !isStreaming;
+
+    // Status indicator color
+    const getStatusColor = () => {
+        if (hasBackgroundTasks) return "bg-success"; // Green
+        if (isStreaming) return "bg-info"; // Blue
+        return "bg-text-tertiary"; // Gray
+    };
+
+    // Status text
+    const getStatusText = () => {
+        if (hasBackgroundTasks) {
+            return t("session.backgroundTasks", {count: session.backgroundTasksCount || 0});
+        }
+        if (isStreaming) {
+            return t("session.streaming");
+        }
+        return ""; // Don't show idle status
+    };
 
     const handleMenuClick = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -47,12 +73,26 @@ const SessionCard = ({session, isActive = false, onClick = () => {}, onRename = 
         ${menuOpen ? "z-10" : ""}
       `}
         >
+            {/* Status Indicator */}
+            {!isIdle && (
+                <div className="absolute right-2 top-2">
+                    <div className="relative flex items-center justify-center w-3 h-3">
+                        <span className={`absolute inline-flex h-full w-full rounded-full ${getStatusColor()} opacity-75 ${hasBackgroundTasks ? "animate-ping" : ""}`} />
+                        <span className={`relative inline-flex rounded-full h-2 w-2 ${getStatusColor()}`} />
+                    </div>
+                </div>
+            )}
+
             <div className="flex items-start justify-between gap-2 mb-1">
                 <div className="flex items-center gap-1.5 text-text-primary">
                     <span className="flex-shrink-0">{typeIcon}</span>
                     <h3 className="text-sm font-medium truncate">{session.name || t("session.untitled")}</h3>
                 </div>
             </div>
+
+            {/* Status Text */}
+            {getStatusText() && <div className="text-xs text-text-secondary mb-1">{getStatusText()}</div>}
+
             <div className="text-xs text-text-tertiary">{formatRelativeTime(session.updatedAt, t)}</div>
 
             {/* Menu Button & Dropdown Container */}
@@ -66,7 +106,13 @@ const SessionCard = ({session, isActive = false, onClick = () => {}, onRename = 
                 </button>
 
                 {/* Session Menu - positioned below the button */}
-                <SessionMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} onRename={handleRename} onDelete={handleDelete} />
+                <SessionMenu
+                    isOpen={menuOpen}
+                    onClose={() => setMenuOpen(false)}
+                    onRename={handleRename}
+                    onDelete={handleDelete}
+                    onOpenInNewTab={onOpenInNewTab}
+                />
             </div>
         </button>
     );

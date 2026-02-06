@@ -1,6 +1,7 @@
 import { Router, type Router as RouterType } from "express";
 import { getDatabase } from "../services/database.js";
 import { randomUUID } from "crypto";
+import sessionStatusManager from "../services/sessionStatusManager.js";
 
 const router: RouterType = Router();
 
@@ -20,11 +21,21 @@ router.get("/", async (req, res) => {
 
         query += " ORDER BY updated_at DESC";
 
-        const sessions = db.prepare(query).all(...params);
+        const sessions = db.prepare(query).all(...params) as any[];
+
+        // Attach current status to each session
+        const sessionsWithStatus = sessions.map(session => {
+            const status = sessionStatusManager.getStatus(session.id);
+            return {
+                ...session,
+                currentStatus: status?.status || "idle",
+                backgroundTasksCount: status?.backgroundTasksCount || 0
+            };
+        });
 
         res.json({
-            data: sessions,
-            total: sessions.length,
+            data: sessionsWithStatus,
+            total: sessionsWithStatus.length,
         });
     } catch (error) {
         console.error("Session list failed:", error);
@@ -187,6 +198,26 @@ router.delete("/:id", async (req, res) => {
         res.status(500).json({
             error: {
                 code: "SESSION_DELETE_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error",
+            },
+        });
+    }
+});
+
+// GET /api/sessions/statuses - 모든 세션 상태 조회
+router.get("/statuses", async (_req, res) => {
+    try {
+        const allStatuses = sessionStatusManager.getAllStatuses();
+
+        res.json({
+            data: allStatuses,
+            total: allStatuses.length,
+        });
+    } catch (error) {
+        console.error("Session statuses failed:", error);
+        res.status(500).json({
+            error: {
+                code: "SESSION_STATUSES_FAILED",
                 message: error instanceof Error ? error.message : "Unknown error",
             },
         });

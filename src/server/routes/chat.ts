@@ -4,6 +4,7 @@ import {type ChildProcess} from "child_process";
 import {callClaude} from "../services/claude.js";
 import {getRecentContext} from "../services/context.js";
 import {getDatabase} from "../services/database.js";
+import sessionStatusManager from "../services/sessionStatusManager.js";
 
 const router: RouterType = Router();
 
@@ -46,6 +47,18 @@ ${formattedAnswers}
 const formatTextWithLineBreaks = (text: string): string => {
     // 마침표(.) 뒤에 공백이나 대문자로 시작하는 새 문장이 오면 \n\n 추가
     return text.replace(/\.\s+([가-힣A-Z])/g, '.\n\n$1');
+};
+
+// 유틸리티: SubagentStop 감지 패턴
+const subagentStopPatterns = [
+    /SubagentStop/,
+    /agent.*completed/i,
+    /background.*task.*finished/i,
+    /"type":"subagent_stop"/
+];
+
+const isSubagentStop = (text: string): boolean => {
+    return subagentStopPatterns.some(pattern => pattern.test(text));
 };
 
 // POST /api/chat/stream - SSE 스트리밍
@@ -93,6 +106,9 @@ router.post("/stream", async (req, res) => {
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
         console.log("[CHAT STREAM] SSE headers set");
+
+        // Set status to streaming
+        sessionStatusManager.setStatus(sessionId, "streaming");
 
         const db = getDatabase();
         const projectPath = process.cwd();
@@ -177,6 +193,12 @@ router.post("/stream", async (req, res) => {
                                 const text = contentBlock.text;
                                 assistantResponse += text;
 
+                                // SubagentStop 감지
+                                if (isSubagentStop(text)) {
+                                    console.log("[CHAT STREAM] SubagentStop detected");
+                                    sessionStatusManager.decrementBackgroundTasks(sessionId);
+                                }
+
                                 // 문장 종료 후 줄바꿈 추가
                                 const formattedText = formatTextWithLineBreaks(text);
 
@@ -202,6 +224,12 @@ router.post("/stream", async (req, res) => {
                                     tool_name: contentBlock.name,
                                     tool_input: contentBlock.input
                                 };
+
+                                // Task tool 감지 - 백그라운드 작업 시작
+                                if (contentBlock.name === "Task") {
+                                    console.log("[CHAT STREAM] Task tool detected, incrementing background tasks");
+                                    sessionStatusManager.incrementBackgroundTasks(sessionId);
+                                }
 
                                 // SSE로 tool_use 정보 전송
                                 res.write(`data: ${JSON.stringify(toolUseData)}\n\n`);
@@ -250,6 +278,12 @@ router.post("/stream", async (req, res) => {
             // 프로세스 정리
             activeStreams.delete(sessionId);
             console.log("[CHAT STREAM] Process removed from active streams");
+
+            // Check current status and set to idle if not in background tasks
+            const currentStatus = sessionStatusManager.getStatus(sessionId);
+            if (!currentStatus || currentStatus.backgroundTasksCount === 0) {
+                sessionStatusManager.setStatus(sessionId, "idle");
+            }
 
             if (code === 0 && assistantResponse) {
                 const assistantMessageId = randomUUID();
@@ -356,6 +390,9 @@ router.post("/tool-result", async (req, res) => {
         res.setHeader("Connection", "keep-alive");
         console.log("[TOOL RESULT] SSE headers set");
 
+        // Set status to streaming
+        sessionStatusManager.setStatus(sessionId, "streaming");
+
         // 5. Claude CLI 호출 (--resume)
         const projectPath = process.cwd();
         console.log("[TOOL RESULT] Calling Claude CLI with:", {
@@ -406,6 +443,12 @@ router.post("/tool-result", async (req, res) => {
                                 const text = contentBlock.text;
                                 assistantResponse += text;
 
+                                // SubagentStop 감지
+                                if (isSubagentStop(text)) {
+                                    console.log("[TOOL RESULT] SubagentStop detected");
+                                    sessionStatusManager.decrementBackgroundTasks(sessionId);
+                                }
+
                                 // 문장 종료 후 줄바꿈 추가
                                 const formattedText = formatTextWithLineBreaks(text);
 
@@ -429,6 +472,12 @@ router.post("/tool-result", async (req, res) => {
                                     tool_name: contentBlock.name,
                                     tool_input: contentBlock.input
                                 };
+
+                                // Task tool 감지 - 백그라운드 작업 시작
+                                if (contentBlock.name === "Task") {
+                                    console.log("[TOOL RESULT] Task tool detected, incrementing background tasks");
+                                    sessionStatusManager.incrementBackgroundTasks(sessionId);
+                                }
 
                                 res.write(`data: ${JSON.stringify(toolUseData)}\n\n`);
                                 console.log("[TOOL RESULT] tool_use detected:", {
@@ -467,6 +516,12 @@ router.post("/tool-result", async (req, res) => {
             // 프로세스 정리
             activeStreams.delete(sessionId);
             console.log("[TOOL RESULT] Process removed from active streams");
+
+            // Check current status and set to idle if not in background tasks
+            const currentStatus = sessionStatusManager.getStatus(sessionId);
+            if (!currentStatus || currentStatus.backgroundTasksCount === 0) {
+                sessionStatusManager.setStatus(sessionId, "idle");
+            }
 
             if (code === 0 && assistantResponse) {
                 const assistantMessageId = randomUUID();

@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, ExternalLink } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from '../../../contexts/language';
 
@@ -7,11 +7,12 @@ interface SessionMenuProps {
   onClose: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onOpenInNewTab?: () => void;
   position?: { top: number; left: number };
 }
 
 const SessionMenu = (props: SessionMenuProps) => {
-  const { isOpen = false, onClose = () => {}, onRename = () => {}, onDelete = () => {}, position } = props;
+  const { isOpen = false, onClose = () => {}, onRename = () => {}, onDelete = () => {}, onOpenInNewTab = () => {}, position } = props;
 
   const {t} = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -52,12 +53,26 @@ const SessionMenu = (props: SessionMenuProps) => {
     onClose();
   };
 
+  const handleOpenInNewTab = () => {
+    onOpenInNewTab();
+    onClose();
+  };
+
   return (
     <div
       ref={menuRef}
-      className="absolute top-full right-0 mt-1 z-50 bg-bg-primary border border-border-default rounded-md shadow-md min-w-[120px] overflow-hidden"
+      className="absolute top-full right-0 mt-1 z-50 bg-bg-primary border border-border-default rounded-md shadow-md min-w-[160px] overflow-hidden"
       style={position ? { top: position.top, left: position.left } : undefined}
     >
+      {/* 새 탭에서 열기 */}
+      <button
+        onClick={handleOpenInNewTab}
+        className="w-full flex items-center gap-2 py-2 px-3 text-sm text-text-primary hover:bg-bg-tertiary transition-colors"
+      >
+        <ExternalLink size={14} />
+        <span>{t("session.openInNewTab")}</span>
+      </button>
+
       {/* 이름 변경 */}
       <button
         onClick={handleRename}

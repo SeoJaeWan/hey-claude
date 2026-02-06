@@ -1,13 +1,6 @@
 import SessionCard from '../card';
 import { useTranslation } from '../../../contexts/language';
-
-interface Session {
-  id: string;
-  name: string;
-  type: 'claude-code' | 'quick-chat';
-  source: 'terminal' | 'web';
-  updatedAt: string;
-}
+import type {Session} from '../../../types';
 
 interface SessionListProps {
   sessions: Session[];
@@ -15,6 +8,7 @@ interface SessionListProps {
   onSessionClick?: (sessionId: string) => void;
   onSessionRename?: (sessionId: string, currentName: string) => void;
   onSessionDelete?: (sessionId: string) => void;
+  onOpenInNewTab?: (sessionId: string) => void;
 }
 
 const SessionList = ({
@@ -23,21 +17,31 @@ const SessionList = ({
   onSessionClick = () => {},
   onSessionRename = () => {},
   onSessionDelete = () => {},
+  onOpenInNewTab = () => {},
 }: SessionListProps) => {
   const {t} = useTranslation();
-  const claudeCodeSessions = sessions.filter((s) => s.type === 'claude-code');
-  const quickChatSessions = sessions.filter((s) => s.type === 'quick-chat');
+
+  // Determine if a session is running
+  const isRunning = (session: Session) => {
+    const hasBackgroundTasks = (session.backgroundTasksCount ?? 0) > 0;
+    const isStreaming = session.streamStatus === "streaming";
+    return hasBackgroundTasks || isStreaming;
+  };
+
+  // Group sessions by running state
+  const activeSessions = sessions.filter(isRunning);
+  const idleSessions = sessions.filter((s) => !isRunning(s));
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Claude Code Sessions */}
-      {claudeCodeSessions.length > 0 && (
+      {/* Running Sessions */}
+      {activeSessions.length > 0 && (
         <div>
           <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-2 px-2">
-            {t("sidebar.claudeCodeSessions")}
+            {t("sidebar.runningSessions", {count: activeSessions.length})}
           </h3>
           <div className="flex flex-col gap-1">
-            {claudeCodeSessions.map((session) => (
+            {activeSessions.map((session) => (
               <SessionCard
                 key={session.id}
                 session={session}
@@ -45,20 +49,21 @@ const SessionList = ({
                 onClick={() => onSessionClick(session.id)}
                 onRename={onSessionRename}
                 onDelete={onSessionDelete}
+                onOpenInNewTab={() => onOpenInNewTab(session.id)}
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* Quick Chat Sessions */}
-      {quickChatSessions.length > 0 && (
+      {/* Recent Sessions */}
+      {idleSessions.length > 0 && (
         <div>
           <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-2 px-2">
-            {t("sidebar.quickChatSessions")}
+            {t("sidebar.recentSessions", {count: idleSessions.length})}
           </h3>
           <div className="flex flex-col gap-1">
-            {quickChatSessions.map((session) => (
+            {idleSessions.map((session) => (
               <SessionCard
                 key={session.id}
                 session={session}
@@ -66,6 +71,7 @@ const SessionList = ({
                 onClick={() => onSessionClick(session.id)}
                 onRename={onSessionRename}
                 onDelete={onSessionDelete}
+                onOpenInNewTab={() => onOpenInNewTab(session.id)}
               />
             ))}
           </div>

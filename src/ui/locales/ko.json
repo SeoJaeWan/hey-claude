@@ -25,7 +25,9 @@
         "newSession": "새 세션",
         "settings": "설정",
         "claudeCodeSessions": "Claude Code",
-        "quickChatSessions": "일반 질문"
+        "quickChatSessions": "일반 질문",
+        "runningSessions": "실행 중 ({{count}})",
+        "recentSessions": "최근 세션 ({{count}})"
     },
     "settings": {
         "title": "설정",
@@ -96,7 +98,12 @@
         "menu": "세션 메뉴",
         "closeMenu": "메뉴 닫기",
         "openMenu": "메뉴 열기",
-        "untitled": "이름 없는 세션"
+        "openInNewTab": "새 탭에서 열기",
+        "untitled": "이름 없는 세션",
+        "backgroundTasks": "{{count}}개 작업 실행 중",
+        "backgroundTasks_plural": "{{count}}개 작업 실행 중",
+        "streaming": "응답 중...",
+        "idle": "대기 중"
     },
     "newSession": {
         "title": "hey-claude",

@@ -15,10 +15,13 @@ import snippetsRouter from "./routes/snippets.js";
 import projectRouter from "./routes/project.js";
 import settingsRouter from "./routes/settings.js";
 import cliRouter from "./routes/cli.js";
+import sseRouter from "./routes/sse.js";
 
 // Import services
 import { initDatabase } from "./services/database.js";
 import { getAllCommands, type CommandInfo } from "./services/claude-commands-detector.js";
+import sessionStatusManager from "./services/sessionStatusManager.js";
+import sseManager from "./services/sseManager.js";
 
 const __filename = fileURLToPath(import.meta.url);
 dirname(__filename); // used for fileURLToPath compatibility
@@ -134,6 +137,7 @@ app.use("/api/snippets", snippetsRouter);
 app.use("/api/project", projectRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/cli", cliRouter);
+app.use("/api/sse", sseRouter);
 
 // Error handler
 app.use(
@@ -197,13 +201,19 @@ const startServer = async (
         console.log("Initializing database...");
         initDatabase(projectPath);
 
-        // 2. Cleanup 핸들러 설정
+        // 2. SessionStatusManager와 SSEManager 연결
+        console.log("Initializing session status manager...");
+        sessionStatusManager.setBroadcastCallback((data) => {
+            sseManager.broadcastGlobal(data);
+        });
+
+        // 3. Cleanup 핸들러 설정
         setupCleanup(projectPath);
 
-        // 3. 서버 시작
+        // 4. 서버 시작
         await startServer(projectPath, DEFAULT_PORT);
 
-        // 4. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
+        // 5. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
         refreshCommandsCache(projectPath);
     } catch (err) {
         console.error("Failed to start server:", err);

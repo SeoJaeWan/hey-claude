@@ -41,22 +41,19 @@ export const useMessagesQuery = (sessionId: string | undefined) => {
     };
 };
 
-// SSE 스트리밍 메시지 전송 (Optimistic Update)
+// 메시지 전송 (SSE 연결과 분리)
 export const useSendMessageStream = () => {
-    const [isStreaming, setIsStreaming] = useState(false);
-    const [streamContent, setStreamContent] = useState("");
+    const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const queryClient = useQueryClient();
 
     const sendMessage = useCallback(
         async (sessionId: string, prompt: string, images?: File[]) => {
-            setIsStreaming(true);
-            setStreamContent("");
+            setIsSending(true);
             setError(null);
 
             // 임시 메시지 ID 생성
             const tempUserMsgId = `temp-user-${Date.now()}`;
-            const tempAssistantMsgId = `temp-assistant-${Date.now()}`;
 
             try {
                 // 이미지를 Base64로 인코딩
@@ -84,6 +81,7 @@ export const useSendMessageStream = () => {
                     };
                 });
 
+                // POST 요청만 전송 (응답은 SSE로 수신)
                 const response = await fetch("/api/chat/stream", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
@@ -94,145 +92,11 @@ export const useSendMessageStream = () => {
                     throw new Error(`HTTP ${response.status}`);
                 }
 
-                const reader = response.body?.getReader();
-                if (!reader) {
-                    throw new Error("ReadableStream not supported");
-                }
-
-                const decoder = new TextDecoder();
-                let buffer = "";
-                let assistantContent = "";
-                let isQuestion = false; // 질문 여부 추적
-
-                while (true) {
-                    const {done, value} = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, {stream: true});
-                    const lines = buffer.split("\n\n");
-
-                    // 마지막 불완전한 라인은 버퍼에 남겨둠
-                    buffer = lines.pop() || "";
-
-                    for (const line of lines) {
-                        if (line.startsWith("data: ")) {
-                            try {
-                                const data = JSON.parse(line.slice(6));
-
-                                // chunk와 question 모두 동일하게 처리
-                                if (data.type === "chunk" || data.type === "question") {
-                                    // question 타입이면 플래그 설정
-                                    if (data.type === "question") {
-                                        isQuestion = true;
-                                    }
-
-                                    assistantContent += data.content;
-                                    setStreamContent(assistantContent);
-
-                                    // Optimistic Update: assistant 메시지 업데이트
-                                    queryClient.setQueryData(["session", sessionId], (old: any) => {
-                                        if (!old) return old;
-
-                                        const messages = old.messages || [];
-                                        const lastMsg = messages[messages.length - 1];
-
-                                        // 마지막 메시지가 임시 assistant 메시지면 업데이트
-                                        if (lastMsg?.id === tempAssistantMsgId) {
-                                            return {
-                                                ...old,
-                                                messages: [...messages.slice(0, -1), {...lastMsg, content: assistantContent, isQuestion}]
-                                            };
-                                        } else {
-                                            // 아직 assistant 메시지가 없으면 추가
-                                            return {
-                                                ...old,
-                                                messages: [
-                                                    ...messages,
-                                                    {
-                                                        id: tempAssistantMsgId,
-                                                        session_id: sessionId,
-                                                        role: "assistant",
-                                                        content: assistantContent,
-                                                        timestamp: new Date().toISOString(),
-                                                        isQuestion
-                                                    }
-                                                ]
-                                            };
-                                        }
-                                    });
-                                }
-                                // tool_use 처리
-                                else if (data.type === "tool_use") {
-                                    console.log("[SSE] tool_use detected:", data);
-
-                                    if (data.tool_name === "AskUserQuestion") {
-                                        console.log("[SSE] AskUserQuestion detected, questions:", data.tool_input.questions);
-
-                                        const questionData = {
-                                            tool_use_id: data.tool_use_id,
-                                            questions: data.tool_input.questions
-                                        };
-
-                                        // React Query 캐시 업데이트
-                                        queryClient.setQueryData(["session", sessionId], (old: any) => {
-                                            if (!old) return old;
-
-                                            const messages = old.messages || [];
-                                            const lastMsg = messages[messages.length - 1];
-
-                                            if (lastMsg?.id === tempAssistantMsgId) {
-                                                return {
-                                                    ...old,
-                                                    messages: [
-                                                        ...messages.slice(0, -1),
-                                                        {
-                                                            ...lastMsg,
-                                                            content: assistantContent,
-                                                            isQuestion: true,
-                                                            questionData
-                                                        }
-                                                    ]
-                                                };
-                                            } else {
-                                                return {
-                                                    ...old,
-                                                    messages: [
-                                                        ...messages,
-                                                        {
-                                                            id: tempAssistantMsgId,
-                                                            session_id: sessionId,
-                                                            role: "assistant",
-                                                            content: assistantContent,
-                                                            timestamp: new Date().toISOString(),
-                                                            isQuestion: true,
-                                                            questionData
-                                                        }
-                                                    ]
-                                                };
-                                            }
-                                        });
-                                    }
-                                } else if (data.type === "error") {
-                                    setError(data.content || data.error);
-                                    setIsStreaming(false);
-                                    // 에러 시 optimistic update rollback
-                                    queryClient.invalidateQueries({queryKey: ["session", sessionId]});
-                                } else if (data.type === "done") {
-                                    setIsStreaming(false);
-                                    // done 시에도 refetch (서버에서 실제 ID 받기 위해)
-                                    // 하지만 UI는 이미 optimistic update로 표시되어 있음
-                                    queryClient.invalidateQueries({queryKey: ["session", sessionId]});
-                                }
-                            } catch (e) {
-                                console.error("Failed to parse SSE data:", e);
-                            }
-                        }
-                    }
-                }
+                setIsSending(false);
             } catch (err) {
-                console.error("SSE streaming error:", err);
+                console.error("Message send error:", err);
                 setError(err instanceof Error ? err.message : "Unknown error");
-                setIsStreaming(false);
+                setIsSending(false);
                 // 에러 시 optimistic update rollback
                 queryClient.invalidateQueries({queryKey: ["session", sessionId]});
             }
@@ -241,12 +105,11 @@ export const useSendMessageStream = () => {
     );
 
     const reset = useCallback(() => {
-        setStreamContent("");
         setError(null);
-        setIsStreaming(false);
+        setIsSending(false);
     }, []);
 
-    return {isStreaming, streamContent, error, sendMessage, reset};
+    return {isSending, error, sendMessage, reset};
 };
 
 // 답변 제출 Hook

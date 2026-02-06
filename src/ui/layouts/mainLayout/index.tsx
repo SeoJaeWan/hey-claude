@@ -4,7 +4,7 @@ import Sidebar from "../../components/layout/sidebar";
 import DeleteConfirmDialog from "../../components/commons/deleteConfirmDialog";
 import RenameDialog from "../../components/session/renameDialog";
 import SetupStatusBanner from "../../components/layout/setupStatusBanner";
-import {useSessionsQuery, useUpdateSession, useDeleteSession} from "../../hooks/apis/queries/session";
+import {useSessionsQuery, useUpdateSession, useDeleteSession, useGlobalSSE} from "../../hooks/apis/queries/session";
 import {useProjectPath} from "../../hooks/apis/queries/project";
 import {useSetupStatusQuery} from "../../hooks/apis/queries/setup";
 import {useTranslation} from "../../contexts/language";
@@ -27,6 +27,9 @@ const MainLayout = () => {
     const {data: setupStatus, isLoading: isLoadingSetup} = useSetupStatusQuery();
     const updateSessionMutation = useUpdateSession();
     const deleteSessionMutation = useDeleteSession();
+
+    // 전역 SSE 연결 (세션 상태 업데이트)
+    useGlobalSSE(projectPath);
 
     // Setup 배너 타입 결정 (우선순위: claude-code > plugin)
     const getBannerType = (): "claude-code" | "plugin" | null => {

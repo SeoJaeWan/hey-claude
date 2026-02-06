@@ -2,6 +2,7 @@
 export type SessionType = "claude-code" | "quick-chat";
 export type SessionSource = "terminal" | "web";
 export type SessionStatus = "active" | "completed";
+export type SessionStreamStatus = "idle" | "streaming" | "background_tasks";
 
 export interface Session {
     id: string;
@@ -9,6 +10,8 @@ export interface Session {
     type: SessionType;
     source: SessionSource;
     status: SessionStatus;
+    streamStatus?: SessionStreamStatus; // SSE 스트리밍 상태
+    backgroundTasksCount?: number; // 백그라운드 작업 수
     claudeSessionId?: string;
     model?: string;
     createdAt: string;
