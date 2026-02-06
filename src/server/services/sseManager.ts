@@ -95,13 +95,15 @@ class SSEManager {
     /**
      * Broadcast to session-specific clients
      */
-    public broadcastToSession(sessionId: string, data: SessionStatusData): void {
+    public broadcastToSession(sessionId: string, data: SessionStatusData | any): void {
         const clients = this.sessionClients.get(sessionId);
         if (!clients || clients.size === 0) {
             return;
         }
 
-        const message = `data: ${JSON.stringify({type: "session_status", data})}\n\n`;
+        // If data has a 'type' field, use it directly; otherwise wrap it as session_status
+        const eventData = data.type ? data : {type: "session_status", data};
+        const message = `data: ${JSON.stringify(eventData)}\n\n`;
 
         for (const client of clients) {
             try {
@@ -112,7 +114,7 @@ class SSEManager {
             }
         }
 
-        console.log(`[SSE MANAGER] Broadcasted session status to ${clients.size} session clients`);
+        console.log(`[SSE MANAGER] Broadcasted to ${clients.size} session clients (type: ${eventData.type || 'session_status'})`);
     }
 
     /**

@@ -174,5 +174,11 @@
             "name": "Codex",
             "description": "OpenAI Codex"
         }
+    },
+    "terminal": {
+        "inputPlaceholder": "명령어를 입력하세요... (Enter: 전송, Shift+Enter: 줄바꿈)",
+        "processExited": "프로세스가 종료되었습니다 (코드: {{code}})",
+        "connecting": "터미널 연결 중...",
+        "disconnected": "터미널 연결이 끊어졌습니다"
     }
 }

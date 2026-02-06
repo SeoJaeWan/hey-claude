@@ -174,5 +174,11 @@
             "name": "Codex",
             "description": "OpenAI Codex"
         }
+    },
+    "terminal": {
+        "inputPlaceholder": "Enter command... (Enter: send, Shift+Enter: newline)",
+        "processExited": "Process exited with code {{code}}",
+        "connecting": "Connecting to terminal...",
+        "disconnected": "Terminal disconnected"
     }
 }

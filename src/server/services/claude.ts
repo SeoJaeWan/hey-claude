@@ -1,5 +1,12 @@
 /**
  * Claude CLI 호출 서비스
+ *
+ * @deprecated 이 모듈은 claudeProcessManager.ts로 대체되었습니다.
+ * - 일반 대화: claudeProcessManager.sendMessage() 사용
+ * - AskUserQuestion 답변: 이 모듈의 callClaude() 사용 (Issue #16712 하이브리드 접근)
+ *
+ * Issue #16712로 인해 tool_result 전송 시 새 프로세스가 필요하므로
+ * tool-result 엔드포인트에서만 사용됩니다.
  */
 
 import { spawn, ChildProcess, execSync } from "child_process";

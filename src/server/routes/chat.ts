@@ -1,15 +1,26 @@
-import {Router, type Router as RouterType} from "express";
-import {randomUUID} from "crypto";
-import {type ChildProcess} from "child_process";
-import {callClaude} from "../services/claude.js";
-import {getRecentContext} from "../services/context.js";
-import {getDatabase} from "../services/database.js";
+/**
+ * Chat Routes - PTY 기반 전환 중 (Phase 1)
+ *
+ * Phase 1 상태:
+ * - POST /api/chat/start - PTY 세션 시작 (신규)
+ * - POST /api/chat/send - PTY stdin 메시지 전송 (신규)
+ * - POST /api/chat/stream - 기존 호환성 유지 (stream-json 모드)
+ * - POST /api/chat/tool-result - 기존 방식 유지 (Issue #16712)
+ *
+ * Phase 2 계획:
+ * - /api/chat/stream을 PTY + Hooks 데이터 기반으로 전환
+ * - stream-json 파싱 로직 제거
+ */
+
+import { Router, type Router as RouterType } from "express";
+import { randomUUID } from "crypto";
+import { getRecentContext } from "../services/context.js";
+import { getDatabase } from "../services/database.js";
 import sessionStatusManager from "../services/sessionStatusManager.js";
+import claudeProcessManager from "../services/claudeProcessManager.js";
+import { callClaude } from "../services/claude.js";
 
 const router: RouterType = Router();
-
-// 세션별 활성 스트리밍 프로세스 관리
-const activeStreams = new Map<string, ChildProcess>();
 
 // 타입 정의: POST /api/chat/tool-result
 interface ToolResultRequest {
@@ -69,11 +80,146 @@ const writeSSE = (res: any, data: any): void => {
     }
 };
 
-// POST /api/chat/stream - SSE 스트리밍
+// POST /api/chat/start - PTY 세션 시작
+router.post("/start", async (req, res) => {
+    try {
+        const { sessionId, claudeSessionId } = req.body;
+        console.log("[CHAT START] Request received:", { sessionId, claudeSessionId });
+
+        if (!sessionId) {
+            res.status(400).json({
+                error: {
+                    code: "MISSING_PARAMETERS",
+                    message: "sessionId is required"
+                }
+            });
+            return;
+        }
+
+        const db = getDatabase();
+        const projectPath = process.cwd();
+
+        // 세션 조회
+        const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as any;
+
+        if (!session) {
+            console.log("[CHAT START] Session not found:", sessionId);
+            res.status(404).json({
+                error: {
+                    code: "SESSION_NOT_FOUND",
+                    message: "Session not found"
+                }
+            });
+            return;
+        }
+
+        // PTY 프로세스 생성/재사용
+        const cp = await claudeProcessManager.getOrCreateProcess(
+            sessionId,
+            claudeSessionId || session.claude_session_id,
+            projectPath
+        );
+
+        console.log("[CHAT START] PTY process ready:", {
+            sessionId: cp.sessionId,
+            claudeSessionId: cp.claudeSessionId,
+            state: cp.state
+        });
+
+        res.json({
+            success: true,
+            sessionId: cp.sessionId,
+            claudeSessionId: cp.claudeSessionId
+        });
+    } catch (error) {
+        console.log("[CHAT START] Error:", error);
+        res.status(500).json({
+            error: {
+                code: "PTY_START_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error"
+            }
+        });
+    }
+});
+
+// POST /api/chat/send - PTY stdin으로 메시지 전송
+router.post("/send", async (req, res) => {
+    try {
+        const { sessionId, message, images } = req.body;
+        console.log("[CHAT SEND] Request received:", { sessionId, messageLength: message?.length, hasImages: !!images });
+
+        if (!sessionId || !message) {
+            res.status(400).json({
+                error: {
+                    code: "MISSING_PARAMETERS",
+                    message: "sessionId and message are required"
+                }
+            });
+            return;
+        }
+
+        const db = getDatabase();
+
+        // 메시지 파싱 (images가 있는 경우 JSON 형태일 수 있음)
+        let actualMessage = message;
+        let imageData = images;
+
+        // 메시지가 JSON 형태인지 확인 (images 포함)
+        if (typeof message === 'string' && message.startsWith('{')) {
+            try {
+                const parsed = JSON.parse(message);
+                if (parsed.text) {
+                    actualMessage = parsed.text;
+                    imageData = parsed.images || imageData;
+                }
+            } catch (e) {
+                // JSON 파싱 실패 시 원본 메시지 사용
+                console.log("[CHAT SEND] Message is not JSON, using as-is");
+            }
+        }
+
+        // 사용자 메시지 저장 (이미지 포함)
+        const userMessageId = randomUUID();
+        const imagesJson = imageData ? JSON.stringify(imageData) : null;
+        db.prepare(
+            `INSERT INTO messages (id, session_id, role, content, images, timestamp)
+             VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(userMessageId, sessionId, "user", actualMessage, imagesJson, new Date().toISOString());
+
+        console.log("[CHAT SEND] User message saved to database:", { messageId: userMessageId, hasImages: !!imageData });
+
+        // PTY stdin으로 메시지 전송 (원본 message 사용)
+        const success = claudeProcessManager.write(sessionId, message + '\n');
+
+        if (success) {
+            console.log("[CHAT SEND] Message sent to PTY stdin");
+            res.json({ success: true, messageId: userMessageId });
+        } else {
+            console.log("[CHAT SEND] No active PTY process found");
+            res.status(404).json({
+                error: {
+                    code: "NO_ACTIVE_PROCESS",
+                    message: "No active PTY process for this session"
+                }
+            });
+        }
+    } catch (error) {
+        console.log("[CHAT SEND] Error:", error);
+        res.status(500).json({
+            error: {
+                code: "PTY_SEND_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error"
+            }
+        });
+    }
+});
+
+// POST /api/chat/stream - SSE 스트리밍 (PTY 기반)
+// 기존 호환성 유지: stream-json 파싱 대신 Hooks 데이터 사용 예정
 router.post("/stream", async (req, res) => {
     try {
-        const {sessionId, prompt, images} = req.body;
-        console.log("[CHAT STREAM] Request received:", {sessionId, prompt: prompt?.substring(0, 50)});
+        const { sessionId, prompt, images } = req.body;
+        console.log("[CHAT STREAM] Request received:", { sessionId, prompt: prompt?.substring(0, 50) });
 
         if (!sessionId || !prompt) {
             res.status(400).json({
@@ -85,30 +231,6 @@ router.post("/stream", async (req, res) => {
             return;
         }
 
-        // TODO: 질문 응답 기능 재설계 필요
-        // stdin을 ignore로 설정했으므로 현재는 동작하지 않음
-        // 향후 질문 감지 시 별도 프로세스로 처리하는 방식으로 재구현
-        /*
-        const activeProcess = activeStreams.get(sessionId);
-        if (activeProcess && activeProcess.stdin && !activeProcess.killed) {
-            console.log("[CHAT STREAM] Writing to stdin:", prompt);
-            res.setHeader("Content-Type", "text/event-stream");
-            res.setHeader("Cache-Control", "no-cache");
-            res.setHeader("Connection", "keep-alive");
-            try {
-                activeProcess.stdin.write(prompt + "\n", "utf-8");
-                res.write(`data: ${JSON.stringify({ type: "input_sent" })}\n\n`);
-                res.end();
-                return;
-            } catch (error) {
-                console.log("[CHAT STREAM] Failed to write to stdin:", error);
-                res.write(`data: ${JSON.stringify({ type: "error", error: "Failed to send input" })}\n\n`);
-                res.end();
-                return;
-            }
-        }
-        */
-
         // SSE 헤더 설정
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
@@ -117,7 +239,7 @@ router.post("/stream", async (req, res) => {
         console.log("[CHAT STREAM] SSE headers set");
 
         // Send initial connection event and flush immediately
-        writeSSE(res, {type: "connected"});
+        writeSSE(res, { type: "connected" });
 
         // Set status to streaming
         sessionStatusManager.setStatus(sessionId, "streaming");
@@ -130,7 +252,7 @@ router.post("/stream", async (req, res) => {
 
         if (!session) {
             console.log("[CHAT STREAM] Session not found:", sessionId);
-            writeSSE(res, {type: "error", error: "Session not found"});
+            writeSSE(res, { type: "error", error: "Session not found" });
             res.end();
             return;
         }
@@ -150,162 +272,120 @@ router.post("/stream", async (req, res) => {
         ).run(userMessageId, sessionId, "user", prompt, imagesJson, new Date().toISOString());
 
         // 컨텍스트 주입
-        const context = await getRecentContext({projectPath, sessionId});
+        const context = await getRecentContext({ projectPath, sessionId });
         const finalPrompt = context ? `${context}\n\n${prompt}` : prompt;
         console.log("[CHAT STREAM] Context prepared, final prompt length:", finalPrompt.length);
 
-        // 기존 프로세스 종료 (백그라운드 작업 실행 중이 아닐 때만)
-        const existingProcess = activeStreams.get(sessionId);
-        const currentStatus = sessionStatusManager.getStatus(sessionId);
-        const hasBackgroundTasks = currentStatus && currentStatus.backgroundTasksCount > 0;
-
-        if (existingProcess && !existingProcess.killed) {
-            if (hasBackgroundTasks) {
-                console.log("[CHAT STREAM] Background tasks running, keeping existing process alive for session:", sessionId);
-                // 백그라운드 작업 실행 중이므로 프로세스 유지
-            } else {
-                console.log("[CHAT STREAM] Killing existing process for session:", sessionId);
-                existingProcess.kill();
-                activeStreams.delete(sessionId);
-            }
-        }
-
-        // Claude CLI 호출
-        console.log("[CHAT STREAM] Calling Claude CLI with:", {
-            sessionId: session.claude_session_id,
-            cwd: projectPath
-        });
-        const claude = callClaude({
-            prompt: finalPrompt,
-            sessionId: session.claude_session_id,
-            cwd: projectPath
-        });
-
-        // 활성 프로세스 등록
-        activeStreams.set(sessionId, claude);
-        console.log("[CHAT STREAM] Process registered for session:", sessionId);
-
+        // 응답 변수
         let assistantResponse = "";
         let claudeSessionId = session.claude_session_id;
-        let buffer = "";
-        let questionData: any = null; // AskUserQuestion 데이터 저장
+        let questionData: any = null;
 
-        // stdout 스트리밍
-        claude.stdout?.on("data", data => {
-            const chunk = data.toString();
-            console.log("[CHAT STREAM] stdout chunk received, length:", chunk.length);
+        // 청크 콜백 (stream-json 파싱 - 임시 유지, Phase 2에서 Hooks로 대체 예정)
+        const onChunk = (parsed: any) => {
+            // Claude Code 세션 ID 추출
+            if (parsed.session_id) {
+                claudeSessionId = parsed.session_id;
+                console.log("[CHAT STREAM] Claude session ID extracted:", claudeSessionId);
+            }
 
-            buffer += chunk;
-            const lines = buffer.split("\n");
+            // type: "assistant" 메시지에서 실제 텍스트 및 tool_use 추출
+            if (parsed.type === "assistant" && parsed.message?.content) {
+                for (const contentBlock of parsed.message.content) {
+                    // 텍스트 블록 처리
+                    if (contentBlock.type === "text" && contentBlock.text) {
+                        const text = contentBlock.text;
+                        assistantResponse += text;
 
-            // 마지막 불완전한 라인은 버퍼에 남겨둠
-            buffer = lines.pop() || "";
+                        // SubagentStop 감지
+                        if (isSubagentStop(text)) {
+                            console.log("[CHAT STREAM] SubagentStop detected");
+                            sessionStatusManager.decrementBackgroundTasks(sessionId);
+                        }
 
-            for (const line of lines) {
-                if (!line.trim()) continue;
+                        // 문장 종료 후 줄바꿈 추가
+                        const formattedText = formatTextWithLineBreaks(text);
 
-                try {
-                    const parsed = JSON.parse(line);
+                        // 질문 패턴 감지: 숫자 목록 (1. 2. 3. 등)
+                        const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(formattedText);
 
-                    // Claude Code 세션 ID 추출
-                    if (parsed.session_id) {
-                        claudeSessionId = parsed.session_id;
-                        console.log("[CHAT STREAM] Claude session ID extracted:", claudeSessionId);
-                    }
-
-                    // type: "assistant" 메시지에서 실제 텍스트 및 tool_use 추출
-                    if (parsed.type === "assistant" && parsed.message?.content) {
-                        for (const contentBlock of parsed.message.content) {
-                            // 텍스트 블록 처리
-                            if (contentBlock.type === "text" && contentBlock.text) {
-                                const text = contentBlock.text;
-                                assistantResponse += text;
-
-                                // SubagentStop 감지
-                                if (isSubagentStop(text)) {
-                                    console.log("[CHAT STREAM] SubagentStop detected");
-                                    sessionStatusManager.decrementBackgroundTasks(sessionId);
-                                }
-
-                                // 문장 종료 후 줄바꿈 추가
-                                const formattedText = formatTextWithLineBreaks(text);
-
-                                // 질문 패턴 감지: 숫자 목록 (1. 2. 3. 등)
-                                const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(formattedText);
-
-                                if (hasNumberedOptions) {
-                                    // 질문으로 표시
-                                    writeSSE(res, {type: "question", content: formattedText});
-                                    console.log("[CHAT STREAM] Question detected, length:", formattedText.length);
-                                } else {
-                                    // 일반 텍스트
-                                    writeSSE(res, {type: "chunk", content: formattedText});
-                                    console.log("[CHAT STREAM] Extracted text, length:", formattedText.length);
-                                }
-                            }
-
-                            // tool_use 블록 처리 (Phase 1: 감지 및 전송)
-                            if (contentBlock.type === "tool_use") {
-                                const toolUseData = {
-                                    type: "tool_use",
-                                    tool_use_id: contentBlock.id,
-                                    tool_name: contentBlock.name,
-                                    tool_input: contentBlock.input
-                                };
-
-                                // Task tool 감지 - 백그라운드 작업 시작
-                                if (contentBlock.name === "Task") {
-                                    console.log("[CHAT STREAM] Task tool detected, incrementing background tasks");
-                                    sessionStatusManager.incrementBackgroundTasks(sessionId);
-                                }
-
-                                // SSE로 tool_use 정보 전송
-                                writeSSE(res, toolUseData);
-                                console.log("[CHAT STREAM] tool_use detected:", {
-                                    id: contentBlock.id,
-                                    name: contentBlock.name,
-                                    input: contentBlock.input
-                                });
-
-                                // AskUserQuestion 데이터 저장 (DB에 함께 저장하기 위함)
-                                if (contentBlock.name === "AskUserQuestion") {
-                                    questionData = {
-                                        tool_use_id: contentBlock.id,
-                                        questions: contentBlock.input.questions
-                                    };
-                                    console.log("[CHAT STREAM] AskUserQuestion saved for DB storage");
-                                }
-                            }
+                        if (hasNumberedOptions) {
+                            // 질문으로 표시
+                            writeSSE(res, { type: "question", content: formattedText });
+                            console.log("[CHAT STREAM] Question detected, length:", formattedText.length);
+                        } else {
+                            // 일반 텍스트
+                            writeSSE(res, { type: "chunk", content: formattedText });
+                            console.log("[CHAT STREAM] Extracted text, length:", formattedText.length);
                         }
                     }
 
-                    // type: "result"에서 최종 응답 추출 (fallback)
-                    else if (parsed.type === "result" && parsed.result && !assistantResponse) {
-                        assistantResponse = parsed.result;
-                        writeSSE(res, {type: "chunk", content: parsed.result});
-                        console.log("[CHAT STREAM] Extracted result text, length:", parsed.result.length);
+                    // tool_use 블록 처리
+                    if (contentBlock.type === "tool_use") {
+                        const toolUseData = {
+                            type: "tool_use",
+                            tool_use_id: contentBlock.id,
+                            tool_name: contentBlock.name,
+                            tool_input: contentBlock.input
+                        };
+
+                        // Task tool 감지 - 백그라운드 작업 시작
+                        if (contentBlock.name === "Task") {
+                            console.log("[CHAT STREAM] Task tool detected, incrementing background tasks");
+                            sessionStatusManager.incrementBackgroundTasks(sessionId);
+                        }
+
+                        // SSE로 tool_use 정보 전송
+                        writeSSE(res, toolUseData);
+                        console.log("[CHAT STREAM] tool_use detected:", {
+                            id: contentBlock.id,
+                            name: contentBlock.name,
+                            input: contentBlock.input
+                        });
+
+                        // AskUserQuestion 데이터 저장
+                        if (contentBlock.name === "AskUserQuestion") {
+                            questionData = {
+                                tool_use_id: contentBlock.id,
+                                questions: contentBlock.input.questions
+                            };
+                            console.log("[CHAT STREAM] AskUserQuestion saved for DB storage");
+                        }
                     }
-                } catch (e) {
-                    console.log("[CHAT STREAM] Failed to parse JSON line:", line.substring(0, 100));
                 }
             }
+
+            // type: "result"에서 최종 응답 추출 (fallback)
+            else if (parsed.type === "result" && parsed.result && !assistantResponse) {
+                assistantResponse = parsed.result;
+                writeSSE(res, { type: "chunk", content: parsed.result });
+                console.log("[CHAT STREAM] Extracted result text, length:", parsed.result.length);
+            }
+        };
+
+        // 클라이언트 연결 종료 시 프로세스 종료
+        let clientDisconnected = false;
+        req.on("close", () => {
+            console.log("[CHAT STREAM] Client connection closed");
+            clientDisconnected = true;
+            // 프로세스는 재사용을 위해 유지 (kill하지 않음)
+            // 클라이언트가 끊어도 프로세스는 계속 응답을 받고, 유휴 타임아웃으로 정리됨
         });
 
-        // stderr 스트리밍
-        claude.stderr?.on("data", data => {
-            const error = data.toString();
-            console.log("[CHAT STREAM] stderr received:", error);
-            writeSSE(res, {type: "error", content: error});
-        });
+        try {
+            // 임시: stream-json 모드 계속 사용 (sendMessage 메서드)
+            // TODO Phase 2: PTY 기반으로 전환 후 Hooks 데이터로 SSE 응답 구성
+            console.log("[CHAT STREAM] Sending message via ClaudeProcessManager (stream-json mode)");
+            const result = await claudeProcessManager.sendMessage(
+                sessionId,
+                finalPrompt,
+                session.claude_session_id,
+                projectPath,
+                onChunk
+            );
 
-        // 종료 시 assistant 메시지 저장
-        claude.on("close", code => {
-            console.log("[CHAT STREAM] Claude process closed with code:", code);
-            console.log("[CHAT STREAM] Response length:", assistantResponse.length);
-
-            // 프로세스 정리
-            activeStreams.delete(sessionId);
-            console.log("[CHAT STREAM] Process removed from active streams");
+            // 결과 처리
+            claudeSessionId = result.claudeSessionId || claudeSessionId;
 
             // Check current status and set to idle if not in background tasks
             const currentStatus = sessionStatusManager.getStatus(sessionId);
@@ -313,7 +393,7 @@ router.post("/stream", async (req, res) => {
                 sessionStatusManager.setStatus(sessionId, "idle");
             }
 
-            if (code === 0 && assistantResponse) {
+            if (assistantResponse) {
                 const assistantMessageId = randomUUID();
                 const questionDataJson = questionData ? JSON.stringify(questionData) : null;
 
@@ -337,22 +417,22 @@ router.post("/stream", async (req, res) => {
                 }
             }
 
-            writeSSE(res, {type: "done", code});
-            res.end();
-        });
+            if (!clientDisconnected) {
+                writeSSE(res, { type: "done", code: 0 });
+                res.end();
+            }
+        } catch (error) {
+            console.log("[CHAT STREAM] Error during message processing:", error);
+            sessionStatusManager.setStatus(sessionId, "idle");
 
-        // 에러 핸들링
-        claude.on("error", error => {
-            console.log("[CHAT STREAM] Claude process error:", error);
-            writeSSE(res, {type: "error", error: error.message});
-            res.end();
-        });
-
-        // 클라이언트 연결 종료 시
-        req.on("close", () => {
-            console.log("[CHAT STREAM] Client connection closed, killing claude process");
-            claude.kill();
-        });
+            if (!clientDisconnected) {
+                writeSSE(res, {
+                    type: "error",
+                    error: error instanceof Error ? error.message : "Unknown error"
+                });
+                res.end();
+            }
+        }
     } catch (error) {
         console.log("[CHAT STREAM] Exception caught:", error);
         writeSSE(res, {
@@ -364,9 +444,10 @@ router.post("/stream", async (req, res) => {
 });
 
 // POST /api/chat/tool-result - AskUserQuestion 답변 제출
+// 주의: Issue #16712로 인해 기존 방식 유지 (새 프로세스 + -p 플래그)
 router.post("/tool-result", async (req, res) => {
     try {
-        const {sessionId, toolUseId, answers} = req.body as ToolResultRequest;
+        const { sessionId, toolUseId, answers } = req.body as ToolResultRequest;
         console.log("[TOOL RESULT] Request received:", {
             sessionId,
             toolUseId,
@@ -375,7 +456,7 @@ router.post("/tool-result", async (req, res) => {
 
         // 1. 입력 검증
         if (!sessionId || !answers || !Array.isArray(answers) || answers.length === 0) {
-            console.log("[TOOL RESULT] Invalid request:", {sessionId, answers});
+            console.log("[TOOL RESULT] Invalid request:", { sessionId, answers });
             res.status(400).json({
                 error: {
                     code: "INVALID_REQUEST",
@@ -414,27 +495,21 @@ router.post("/tool-result", async (req, res) => {
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
         console.log("[TOOL RESULT] SSE headers set");
 
         // Set status to streaming
         sessionStatusManager.setStatus(sessionId, "streaming");
 
-        // 5. 기존 프로세스 종료 (백그라운드 작업 실행 중이 아닐 때만)
-        const existingProcess = activeStreams.get(sessionId);
-        const currentStatus = sessionStatusManager.getStatus(sessionId);
-        const hasBackgroundTasks = currentStatus && currentStatus.backgroundTasksCount > 0;
-
-        if (existingProcess && !existingProcess.killed) {
-            if (hasBackgroundTasks) {
-                console.log("[TOOL RESULT] Background tasks running, keeping existing process alive");
-            } else {
-                console.log("[TOOL RESULT] Killing existing process for session:", sessionId);
-                existingProcess.kill();
-                activeStreams.delete(sessionId);
-            }
+        // 5. 기존 stdin 프로세스 종료 (Issue #16712 하이브리드 접근)
+        // AskUserQuestion 답변은 새 프로세스로 처리해야 함
+        const existingProcess = claudeProcessManager.getProcess(sessionId);
+        if (existingProcess) {
+            console.log("[TOOL RESULT] Terminating existing stdin process for hybrid approach");
+            claudeProcessManager.terminateProcess(sessionId);
         }
 
-        // 6. Claude CLI 호출 (--resume)
+        // 6. Claude CLI 호출 (--resume + -p 플래그) - 기존 방식
         const projectPath = process.cwd();
         console.log("[TOOL RESULT] Calling Claude CLI with:", {
             sessionId: session.claude_session_id,
@@ -447,16 +522,12 @@ router.post("/tool-result", async (req, res) => {
             cwd: projectPath
         });
 
-        // 활성 프로세스 등록
-        activeStreams.set(sessionId, claude);
-        console.log("[TOOL RESULT] Process registered for session:", sessionId);
-
         let assistantResponse = "";
         let claudeSessionId = session.claude_session_id;
         let buffer = "";
 
-        // 6. stdout 스트리밍 (기존 /stream 로직 재사용)
-        claude.stdout?.on("data", data => {
+        // 7. stdout 스트리밍
+        claude.stdout?.on("data", (data: Buffer) => {
             const chunk = data.toString();
             console.log("[TOOL RESULT] stdout chunk received, length:", chunk.length);
 
@@ -497,10 +568,10 @@ router.post("/tool-result", async (req, res) => {
                                 const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(formattedText);
 
                                 if (hasNumberedOptions) {
-                                    res.write(`data: ${JSON.stringify({type: "question", content: formattedText})}\n\n`);
+                                    writeSSE(res, { type: "question", content: formattedText });
                                     console.log("[TOOL RESULT] Question detected, length:", formattedText.length);
                                 } else {
-                                    res.write(`data: ${JSON.stringify({type: "chunk", content: formattedText})}\n\n`);
+                                    writeSSE(res, { type: "chunk", content: formattedText });
                                     console.log("[TOOL RESULT] Extracted text, length:", formattedText.length);
                                 }
                             }
@@ -520,7 +591,7 @@ router.post("/tool-result", async (req, res) => {
                                     sessionStatusManager.incrementBackgroundTasks(sessionId);
                                 }
 
-                                res.write(`data: ${JSON.stringify(toolUseData)}\n\n`);
+                                writeSSE(res, toolUseData);
                                 console.log("[TOOL RESULT] tool_use detected:", {
                                     id: contentBlock.id,
                                     name: contentBlock.name,
@@ -533,7 +604,7 @@ router.post("/tool-result", async (req, res) => {
                     // type: "result"에서 최종 응답 추출 (fallback)
                     else if (parsed.type === "result" && parsed.result && !assistantResponse) {
                         assistantResponse = parsed.result;
-                        res.write(`data: ${JSON.stringify({type: "chunk", content: parsed.result})}\n\n`);
+                        writeSSE(res, { type: "chunk", content: parsed.result });
                         console.log("[TOOL RESULT] Extracted result text, length:", parsed.result.length);
                     }
                 } catch (e) {
@@ -542,21 +613,17 @@ router.post("/tool-result", async (req, res) => {
             }
         });
 
-        // 7. stderr 스트리밍
-        claude.stderr?.on("data", data => {
+        // 8. stderr 스트리밍
+        claude.stderr?.on("data", (data: Buffer) => {
             const error = data.toString();
             console.log("[TOOL RESULT] stderr received:", error);
-            res.write(`data: ${JSON.stringify({type: "error", content: error})}\n\n`);
+            writeSSE(res, { type: "error", content: error });
         });
 
-        // 8. 종료 시 assistant 메시지 저장
-        claude.on("close", code => {
+        // 9. 종료 시 처리
+        claude.on("close", (code) => {
             console.log("[TOOL RESULT] Claude process closed with code:", code);
             console.log("[TOOL RESULT] Response length:", assistantResponse.length);
-
-            // 프로세스 정리
-            activeStreams.delete(sessionId);
-            console.log("[TOOL RESULT] Process removed from active streams");
 
             // Check current status and set to idle if not in background tasks
             const currentStatus = sessionStatusManager.getStatus(sessionId);
@@ -582,23 +649,17 @@ router.post("/tool-result", async (req, res) => {
                 }
             }
 
-            res.write(`data: ${JSON.stringify({type: "done", code})}\n\n`);
+            writeSSE(res, { type: "done", code });
             res.end();
         });
 
-        // 9. 에러 핸들링
-        claude.on("error", error => {
+        // 10. 에러 핸들링
+        claude.on("error", (error) => {
             console.log("[TOOL RESULT] Claude process error:", error);
-            res.write(`data: ${JSON.stringify({type: "error", error: error.message})}\n\n`);
+            writeSSE(res, { type: "error", error: error.message });
             res.end();
         });
 
-        // 10. 클라이언트 연결 종료 시
-        // FIXME: req.on("close")가 즉시 발생하는 문제로 임시 비활성화
-        // req.on("close", () => {
-        //     console.log("[TOOL RESULT] Client connection closed, killing claude process");
-        //     claude.kill();
-        // });
     } catch (error) {
         console.log("[TOOL RESULT] Exception caught:", error);
         res.status(500).json({
@@ -610,10 +671,13 @@ router.post("/tool-result", async (req, res) => {
     }
 });
 
+// NOTE: This endpoint is unreachable - Express uses the first matching route above (line 146)
+// Keeping for reference only. TODO: Remove in Phase 4 cleanup.
+/*
 // POST /api/chat/send - fallback (non-streaming)
 router.post("/send", async (req, res) => {
     try {
-        const {sessionId, prompt, images} = req.body;
+        const { sessionId, prompt, images } = req.body;
 
         if (!sessionId || !prompt) {
             res.status(400).json({
@@ -650,31 +714,36 @@ router.post("/send", async (req, res) => {
         ).run(userMessageId, sessionId, "user", prompt, imagesJson, new Date().toISOString());
 
         // 컨텍스트 주입
-        const context = await getRecentContext({projectPath, sessionId});
+        const context = await getRecentContext({ projectPath, sessionId });
         const finalPrompt = context ? `${context}\n\n${prompt}` : prompt;
 
-        // Claude CLI 호출
-        const claude = callClaude({
-            prompt: finalPrompt,
-            sessionId: session.claude_session_id,
-            cwd: projectPath
-        });
-
+        // stdin 기반 메시지 전송
         let assistantResponse = "";
         let claudeSessionId = session.claude_session_id;
 
-        claude.stdout?.on("data", data => {
-            const chunk = data.toString();
-            assistantResponse += chunk;
+        try {
+            const result = await claudeProcessManager.sendMessage(
+                sessionId,
+                finalPrompt,
+                session.claude_session_id,
+                projectPath,
+                (parsed) => {
+                    if (parsed.session_id) {
+                        claudeSessionId = parsed.session_id;
+                    }
+                    if (parsed.type === 'assistant' && parsed.message?.content) {
+                        for (const block of parsed.message.content) {
+                            if (block.type === 'text' && block.text) {
+                                assistantResponse += block.text;
+                            }
+                        }
+                    }
+                }
+            );
 
-            const sessionMatch = chunk.match(/session_id['"]\s*:\s*['"]([^'"]+)['"]/);
-            if (sessionMatch) {
-                claudeSessionId = sessionMatch[1];
-            }
-        });
+            claudeSessionId = result.claudeSessionId || claudeSessionId;
 
-        claude.on("close", code => {
-            if (code === 0 && assistantResponse) {
+            if (assistantResponse) {
                 const assistantMessageId = randomUUID();
                 db.prepare(
                     `INSERT INTO messages (id, session_id, role, content, timestamp)
@@ -698,11 +767,18 @@ router.post("/send", async (req, res) => {
                 res.status(500).json({
                     error: {
                         code: "CLAUDE_CLI_FAILED",
-                        message: `Claude CLI exited with code ${code}`
+                        message: "No response from Claude"
                     }
                 });
             }
-        });
+        } catch (error) {
+            res.status(500).json({
+                error: {
+                    code: "CLAUDE_CLI_FAILED",
+                    message: error instanceof Error ? error.message : "Unknown error"
+                }
+            });
+        }
     } catch (error) {
         res.status(500).json({
             error: {
@@ -712,5 +788,6 @@ router.post("/send", async (req, res) => {
         });
     }
 });
+*/
 
 export default router;

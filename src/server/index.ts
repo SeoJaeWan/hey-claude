@@ -16,12 +16,14 @@ import projectRouter from "./routes/project.js";
 import settingsRouter from "./routes/settings.js";
 import cliRouter from "./routes/cli.js";
 import sseRouter from "./routes/sse.js";
+import ptyRouter from "./routes/pty.js";
 
 // Import services
 import { initDatabase } from "./services/database.js";
 import { getAllCommands, type CommandInfo } from "./services/claude-commands-detector.js";
 import sessionStatusManager from "./services/sessionStatusManager.js";
 import sseManager from "./services/sseManager.js";
+import claudeProcessManager from "./services/claudeProcessManager.js";
 
 const __filename = fileURLToPath(import.meta.url);
 dirname(__filename); // used for fileURLToPath compatibility
@@ -87,6 +89,10 @@ const removeLockFile = async (projectPath: string): Promise<void> => {
 const setupCleanup = (projectPath: string): void => {
     const cleanup = async () => {
         console.log("\nShutting down server...");
+
+        // Claude 프로세스 정리
+        claudeProcessManager.cleanup();
+
         await removeLockFile(projectPath);
         process.exit(0);
     };
@@ -138,6 +144,7 @@ app.use("/api/project", projectRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/cli", cliRouter);
 app.use("/api/sse", sseRouter);
+app.use("/api/pty", ptyRouter);
 
 // Error handler
 app.use(

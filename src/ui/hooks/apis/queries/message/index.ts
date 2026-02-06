@@ -40,22 +40,32 @@ const processSSEStream = async (
         onComplete?: () => void;
     }
 ): Promise<void> => {
+    console.log("[processSSEStream] Starting SSE processing for session:", sessionId);
+
     const reader = response.body?.getReader();
     if (!reader) {
+        console.error("[processSSEStream] ReadableStream not supported");
         throw new Error("ReadableStream not supported");
     }
+
+    console.log("[processSSEStream] Reader obtained, starting to read...");
 
     const decoder = new TextDecoder();
     let buffer = "";
     let assistantContent = "";
+    let chunkCount = 0;
 
     while (true) {
         const {done, value} = await reader.read();
         if (done) {
+            console.log("[processSSEStream] Stream done, total chunks:", chunkCount);
             break;
         }
 
-        buffer += decoder.decode(value, {stream: true});
+        const rawChunk = decoder.decode(value, {stream: true});
+        console.log("[processSSEStream] Raw chunk received:", rawChunk.substring(0, 200));
+
+        buffer += rawChunk;
         const lines = buffer.split("\n\n");
         buffer = lines.pop() || "";
 
@@ -63,7 +73,8 @@ const processSSEStream = async (
             if (line.startsWith("data: ")) {
                 try {
                     const data = JSON.parse(line.slice(6));
-                    console.log("[SSE] Received data:", data);
+                    chunkCount++;
+                    console.log("[SSE] Received data #" + chunkCount + ":", data);
 
                     // chunk 처리
                     if (data.type === "chunk" || data.type === "question") {
@@ -185,7 +196,7 @@ export const useMessagesQuery = (sessionId: string | undefined) => {
     };
 };
 
-// 메시지 전송 (SSE 연결과 분리)
+// 메시지 전송 (stream-json 스트리밍 기반)
 export const useSendMessageStream = () => {
     const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -226,39 +237,29 @@ export const useSendMessageStream = () => {
                     };
                 });
 
-                // POST 요청 및 SSE 스트리밍 처리
+                console.log("[useSendMessageStream] Sending via /api/chat/stream", {sessionId, promptLength: prompt.length});
+
+                // /api/chat/stream 엔드포인트 사용 (stream-json 파싱)
                 const response = await fetch("/api/chat/stream", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({sessionId, prompt, images: imageData})
                 });
 
+                console.log("[useSendMessageStream] Response status:", response.status, response.ok);
+
                 if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                    const errorText = await response.text();
+                    console.error("[useSendMessageStream] Error response:", errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
 
-                // 빈 assistant 메시지 즉시 추가 (로딩 커서 표시용)
-                queryClient.setQueryData(["session", sessionId], (old: any) => {
-                    if (!old) return old;
+                console.log("[useSendMessageStream] Starting SSE stream processing...");
 
-                    const loadingMessage = {
-                        id: tempAssistantMsgId,
-                        session_id: sessionId,
-                        role: "assistant",
-                        content: "",
-                        timestamp: new Date().toISOString()
-                    };
-
-                    return {
-                        ...old,
-                        messages: [...(old.messages || []), loadingMessage]
-                    };
-                });
-
-                // SSE 스트리밍 처리 (공통 헬퍼 사용)
+                // SSE 스트리밍 처리
                 await processSSEStream(response, sessionId, tempAssistantMsgId, queryClient, {
-                    onError: error => {
-                        setError(error);
+                    onError: (err) => {
+                        setError(err);
                         setIsSending(false);
                     },
                     onComplete: () => {
@@ -266,7 +267,7 @@ export const useSendMessageStream = () => {
                     }
                 });
             } catch (err) {
-                console.error("Message send error:", err);
+                console.error("[useSendMessageStream] Error:", err);
                 setError(err instanceof Error ? err.message : "Unknown error");
                 setIsSending(false);
                 // 에러 시 optimistic update rollback

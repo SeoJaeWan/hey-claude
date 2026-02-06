@@ -218,8 +218,84 @@ export const useSSEConnection = (sessionId: string | undefined) => {
             try {
                 const data = JSON.parse(event.data);
 
-                // chunk 또는 question 처리
-                if (data.type === "chunk" || data.type === "question") {
+                // tool_use_message 처리 (Phase 2에서 구현된 Hooks 데이터)
+                if (data.type === "tool_use_message") {
+                    const message = data.message;
+
+                    console.log("[SSE] Received tool_use_message:", message);
+
+                    // React Query 캐시 업데이트
+                    queryClient.setQueryData(["session", sessionId], (old: any) => {
+                        if (!old) return old;
+
+                        const messages = old.messages || [];
+
+                        // 중복 체크
+                        if (messages.some((m: any) => m.id === message.id)) {
+                            console.log("[SSE] Duplicate message detected, skipping:", message.id);
+                            return old;
+                        }
+
+                        // 새 메시지 추가
+                        return {
+                            ...old,
+                            messages: [
+                                ...messages,
+                                {
+                                    id: message.id,
+                                    session_id: message.sessionId,
+                                    role: message.role,
+                                    content: message.content,
+                                    toolUsages: message.toolUsages,
+                                    timestamp: message.createdAt
+                                }
+                            ]
+                        };
+                    });
+                }
+                // ask_user_question 처리 (Phase 2에서 구현된 PreToolUse Hook)
+                else if (data.type === "ask_user_question") {
+                    console.log("[SSE] Received ask_user_question:", data);
+
+                    const questionData = {
+                        tool_use_id: data.toolUseId,
+                        questions: data.questions
+                    };
+
+                    // 질문 메시지 추가 (임시 ID 사용)
+                    const questionMsgId = `question-${data.toolUseId}`;
+
+                    queryClient.setQueryData(["session", sessionId], (old: any) => {
+                        if (!old) return old;
+
+                        const messages = old.messages || [];
+
+                        // 중복 체크
+                        if (messages.some((m: any) => m.id === questionMsgId)) {
+                            console.log("[SSE] Duplicate question detected, skipping:", questionMsgId);
+                            return old;
+                        }
+
+                        // 질문 메시지 추가
+                        return {
+                            ...old,
+                            messages: [
+                                ...messages,
+                                {
+                                    id: questionMsgId,
+                                    session_id: sessionId,
+                                    role: "assistant",
+                                    content: "", // 질문은 QuestionCard로 표시
+                                    timestamp: new Date().toISOString(),
+                                    isQuestion: true,
+                                    questionData
+                                }
+                            ]
+                        };
+                    });
+                }
+                // chunk 또는 question 처리 (기존 스트리밍 로직)
+                else if (data.type === "chunk" || data.type === "question") {
                     if (data.type === "question") {
                         isQuestion = true;
                     }
@@ -256,7 +332,7 @@ export const useSSEConnection = (sessionId: string | undefined) => {
                         }
                     });
                 }
-                // tool_use 처리
+                // tool_use 처리 (기존 AskUserQuestion 로직 - 하위 호환성)
                 else if (data.type === "tool_use") {
                     if (data.tool_name === "AskUserQuestion") {
                         const questionData = {

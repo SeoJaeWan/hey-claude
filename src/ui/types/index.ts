@@ -57,6 +57,11 @@ export interface Message {
     isQuestion?: boolean; // 질문 여부 (type: "question"일 때 true)
     questionData?: QuestionData; // AskUserQuestion 구조화된 데이터
     questionSubmitted?: boolean; // 답변 제출 여부
+    toolUsages?: Array<{
+        name: string;
+        input: any;
+        output: any;
+    }>; // 도구 사용 메타데이터 (Hooks 데이터 기반)
 }
 
 // 도구 사용 내역
@@ -169,3 +174,33 @@ export interface APIError {
         message: string;
     };
 }
+
+// PTY 관련 타입
+export interface PtySession {
+    sessionId: string;
+    claudeSessionId?: string;
+    cwd: string;
+    createdAt: string;
+}
+
+export type PtyState = "idle" | "running" | "exited";
+
+export interface PtyStatus {
+    exists: boolean;
+    state: PtyState;
+    sessionId?: string;
+    claudeSessionId?: string;
+    lastActivityAt?: string;
+}
+
+export interface PtyOutputEvent {
+    type: "output";
+    data: string;
+}
+
+export interface PtyExitEvent {
+    type: "exit";
+    code: number;
+}
+
+export type PtyEvent = PtyOutputEvent | PtyExitEvent;
