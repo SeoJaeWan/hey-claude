@@ -42,6 +42,12 @@ ${formattedAnswers}
 이 정보를 바탕으로 작업을 계속 진행해주세요.`;
 };
 
+// 유틸리티: 문장 종료 후 줄바꿈 추가
+const formatTextWithLineBreaks = (text: string): string => {
+    // 마침표(.) 뒤에 공백이나 대문자로 시작하는 새 문장이 오면 \n\n 추가
+    return text.replace(/\.\s+([가-힣A-Z])/g, '.\n\n$1');
+};
+
 // POST /api/chat/stream - SSE 스트리밍
 router.post("/stream", async (req, res) => {
     try {
@@ -171,17 +177,20 @@ router.post("/stream", async (req, res) => {
                                 const text = contentBlock.text;
                                 assistantResponse += text;
 
+                                // 문장 종료 후 줄바꿈 추가
+                                const formattedText = formatTextWithLineBreaks(text);
+
                                 // 질문 패턴 감지: 숫자 목록 (1. 2. 3. 등)
-                                const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(text);
+                                const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(formattedText);
 
                                 if (hasNumberedOptions) {
                                     // 질문으로 표시
-                                    res.write(`data: ${JSON.stringify({type: "question", content: text})}\n\n`);
-                                    console.log("[CHAT STREAM] Question detected, length:", text.length);
+                                    res.write(`data: ${JSON.stringify({type: "question", content: formattedText})}\n\n`);
+                                    console.log("[CHAT STREAM] Question detected, length:", formattedText.length);
                                 } else {
                                     // 일반 텍스트
-                                    res.write(`data: ${JSON.stringify({type: "chunk", content: text})}\n\n`);
-                                    console.log("[CHAT STREAM] Extracted text, length:", text.length);
+                                    res.write(`data: ${JSON.stringify({type: "chunk", content: formattedText})}\n\n`);
+                                    console.log("[CHAT STREAM] Extracted text, length:", formattedText.length);
                                 }
                             }
 
@@ -397,15 +406,18 @@ router.post("/tool-result", async (req, res) => {
                                 const text = contentBlock.text;
                                 assistantResponse += text;
 
+                                // 문장 종료 후 줄바꿈 추가
+                                const formattedText = formatTextWithLineBreaks(text);
+
                                 // 질문 패턴 감지
-                                const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(text);
+                                const hasNumberedOptions = /^\s*\d+\.\s+.+/m.test(formattedText);
 
                                 if (hasNumberedOptions) {
-                                    res.write(`data: ${JSON.stringify({type: "question", content: text})}\n\n`);
-                                    console.log("[TOOL RESULT] Question detected, length:", text.length);
+                                    res.write(`data: ${JSON.stringify({type: "question", content: formattedText})}\n\n`);
+                                    console.log("[TOOL RESULT] Question detected, length:", formattedText.length);
                                 } else {
-                                    res.write(`data: ${JSON.stringify({type: "chunk", content: text})}\n\n`);
-                                    console.log("[TOOL RESULT] Extracted text, length:", text.length);
+                                    res.write(`data: ${JSON.stringify({type: "chunk", content: formattedText})}\n\n`);
+                                    console.log("[TOOL RESULT] Extracted text, length:", formattedText.length);
                                 }
                             }
 

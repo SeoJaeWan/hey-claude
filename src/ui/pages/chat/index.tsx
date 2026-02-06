@@ -27,6 +27,9 @@ const ChatPage = () => {
     // 답변 제출
     const {submitAnswer, isSubmitting} = useSubmitQuestionAnswer();
 
+    // 요청 대기 상태 (fetch 시작 ~ 첫 SSE 데이터 수신)
+    const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
+
     // 미답변 질문 체크
     const hasUnansweredQuestion = messages?.some(msg => msg.questionData && !msg.questionSubmitted) || false;
 
@@ -89,6 +92,9 @@ const ChatPage = () => {
         // images는 ChatPage에서 관리하는 드래그앤드롭 이미지들
         const allImages = [...(inputImages || []), ...images.map(img => img.file)];
 
+        // 요청 대기 시작
+        setIsWaitingForResponse(true);
+
         // 메시지 전송 (SSE 스트리밍) - 이미지 포함
         // Optimistic update로 메시지가 즉시 표시됨
         await sendMessage(sessionId, content, allImages.length > 0 ? allImages : undefined);
@@ -96,6 +102,9 @@ const ChatPage = () => {
         // 전송 후 이미지 정리
         images.forEach(img => URL.revokeObjectURL(img.src));
         setImages([]);
+
+        // 대기 종료
+        setIsWaitingForResponse(false);
     };
 
     const handleQuestionSubmit = (sessionId: string, toolUseId: string, answers: QuestionAnswer[]) => {
@@ -118,6 +127,7 @@ const ChatPage = () => {
             <MessageList
                 messages={messages}
                 isStreaming={isStreaming}
+                isWaitingForResponse={isWaitingForResponse}
                 isSubmitting={isSubmitting}
                 onQuestionSubmit={handleQuestionSubmit}
             />
