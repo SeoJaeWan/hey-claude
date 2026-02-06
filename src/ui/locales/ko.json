@@ -1,170 +1,171 @@
 {
-  "common": {
-    "save": "저장",
-    "cancel": "취소",
-    "delete": "삭제",
-    "edit": "수정",
-    "close": "닫기",
-    "confirm": "확인",
-    "refresh": "새로고침",
-    "loading": "로딩 중...",
-    "error": "에러",
-    "enableAutoStart": "자동 시작 활성화",
-    "copyCode": "코드 복사",
-    "openMenu": "메뉴 열기",
-    "removeImage": "이미지 제거",
-    "selectModel": "모델 선택",
-    "selectProvider": "제공자 선택",
-    "notInstalled": "미설치",
-    "loggedIn": "로그인됨",
-    "loginRequired": "로그인 필요",
-    "clickToDelete": "다시 클릭하여 삭제",
-    "changedFiles": "변경된 파일"
-  },
-  "sidebar": {
-    "newSession": "새 세션",
-    "settings": "설정",
-    "claudeCodeSessions": "Claude Code",
-    "quickChatSessions": "일반 질문"
-  },
-  "settings": {
-    "title": "설정",
-    "tabs": {
-      "general": "일반",
-      "aiProviders": "AI 제공자",
-      "snippets": "스니펫"
+    "common": {
+        "save": "저장",
+        "cancel": "취소",
+        "delete": "삭제",
+        "edit": "수정",
+        "close": "닫기",
+        "confirm": "확인",
+        "refresh": "새로고침",
+        "loading": "로딩 중...",
+        "error": "에러",
+        "enableAutoStart": "자동 시작 활성화",
+        "copyCode": "코드 복사",
+        "openMenu": "메뉴 열기",
+        "removeImage": "이미지 제거",
+        "selectModel": "모델 선택",
+        "selectProvider": "제공자 선택",
+        "notInstalled": "미설치",
+        "loggedIn": "로그인됨",
+        "loginRequired": "로그인 필요",
+        "clickToDelete": "다시 클릭하여 삭제",
+        "changedFiles": "변경된 파일"
     },
-    "general": {
-      "theme": "테마",
-      "themeLight": "라이트",
-      "themeDark": "다크",
-      "themeSystem": "시스템",
-      "themeDescription": "인터페이스 색상 테마를 선택하세요.",
-      "language": "언어",
-      "languageDescription": "인터페이스 언어를 선택하세요.",
-      "autoStart": "서버 자동 시작",
-      "autoStartDescription": "터미널에서 Claude Code 실행 시 hey-claude 서버를 자동으로 시작합니다."
+    "sidebar": {
+        "newSession": "새 세션",
+        "settings": "설정",
+        "claudeCodeSessions": "Claude Code",
+        "quickChatSessions": "일반 질문"
     },
-    "aiProviders": {
-      "title": "AI 제공자",
-      "refresh": "새로고침",
-      "claudeCodeSection": "Claude Code (Claude Code 탭 전용)",
-      "quickChatSection": "일반 질문 탭에서 사용할 AI 제공자",
-      "hooksIntegration": "Hooks 연동으로 작동"
+    "settings": {
+        "title": "설정",
+        "tabs": {
+            "general": "일반",
+            "aiProviders": "AI 제공자",
+            "snippets": "스니펫"
+        },
+        "general": {
+            "theme": "테마",
+            "themeLight": "라이트",
+            "themeDark": "다크",
+            "themeSystem": "시스템",
+            "themeDescription": "인터페이스 색상 테마를 선택하세요.",
+            "language": "언어",
+            "languageDescription": "인터페이스 언어를 선택하세요.",
+            "autoStart": "서버 자동 시작",
+            "autoStartDescription": "터미널에서 Claude Code 실행 시 hey-claude 서버를 자동으로 시작합니다."
+        },
+        "aiProviders": {
+            "title": "AI 제공자",
+            "refresh": "새로고침",
+            "claudeCodeSection": "Claude Code (Claude Code 탭 전용)",
+            "quickChatSection": "일반 질문 탭에서 사용할 AI 제공자",
+            "hooksIntegration": "Hooks 연동으로 작동"
+        },
+        "snippets": {
+            "title": "스니펫",
+            "addSnippet": "스니펫 추가",
+            "editSnippet": "스니펫 수정",
+            "noSnippets": "스니펫이 없습니다",
+            "trigger": "트리거",
+            "triggerPlaceholder": "@트리거",
+            "name": "이름",
+            "namePlaceholder": "스니펫 이름",
+            "content": "내용",
+            "contentPlaceholder": "삽입될 텍스트를 입력하세요",
+            "validation": {
+                "triggerRequired": "트리거를 입력하세요",
+                "triggerStartWith": "트리거는 @로 시작해야 합니다",
+                "triggerNoSpaces": "트리거에는 공백을 포함할 수 없습니다",
+                "triggerExists": "이미 존재하는 트리거입니다",
+                "nameRequired": "이름을 입력하세요",
+                "contentRequired": "내용을 입력하세요"
+            }
+        },
+        "loadError": "설정을 불러올 수 없습니다."
+    },
+    "chat": {
+        "inputPlaceholder": "메시지를 입력하세요...",
+        "send": "전송",
+        "feedback": "피드백",
+        "attachImage": "이미지 첨부",
+        "summarizing": "요약 중...",
+        "contextSummary": "컨텍스트 요약",
+        "requestingFeedback": "피드백 요청 중...",
+        "dropImageHere": "이미지를 여기에 놓으세요",
+        "dropImageDescription": "이미지 파일을 드롭하여 첨부"
+    },
+    "session": {
+        "rename": "이름 변경",
+        "delete": "삭제",
+        "deleteConfirmTitle": "세션 삭제",
+        "deleteConfirmMessage": "이 세션을 삭제하시겠습니까?",
+        "deleteConfirmDetail": "삭제된 세션은 복구할 수 없습니다.",
+        "renameDialogTitle": "세션 이름 변경",
+        "renamePlaceholder": "세션 이름을 입력하세요",
+        "menu": "세션 메뉴",
+        "closeMenu": "메뉴 닫기",
+        "openMenu": "메뉴 열기",
+        "untitled": "이름 없는 세션"
+    },
+    "newSession": {
+        "title": "hey-claude",
+        "subtitle": "무엇을 도와드릴까요?",
+        "claudeCode": "Claude Code",
+        "quickChat": "일반 질문"
+    },
+    "setup": {
+        "refresh": "새로고침",
+        "refreshHint": "설치 후 페이지를 새로고침하세요.",
+        "claudeCode": {
+            "title": "Claude Code 설치 필요",
+            "description": "Claude Code가 설치되어 있지 않습니다."
+        },
+        "plugin": {
+            "title": "Plugin 설치 필요",
+            "description": "도구 사용 내역 수집을 위해 Plugin 설치가 필요합니다.",
+            "hint": "Claude Code에서 실행 후 페이지를 새로고침하세요."
+        }
+    },
+    "time": {
+        "justNow": "방금 전",
+        "minutesAgo": "{{count}}분 전",
+        "hoursAgo": "{{count}}시간 전",
+        "yesterday": "어제",
+        "daysAgo": "{{count}}일 전",
+        "weeksAgo": "{{count}}주 전",
+        "monthsAgo": "{{count}}개월 전",
+        "yearsAgo": "{{count}}년 전"
+    },
+    "commands": {
+        "help": "도움말 보기",
+        "clear": "대화 내용 지우기",
+        "new": "새 세션 시작",
+        "summary": "컨텍스트 요약",
+        "settings": "설정 열기"
     },
     "snippets": {
-      "title": "스니펫",
-      "addSnippet": "스니펫 추가",
-      "editSnippet": "스니펫 수정",
-      "noSnippets": "스니펫이 없습니다",
-      "trigger": "트리거",
-      "triggerPlaceholder": "@트리거",
-      "name": "이름",
-      "namePlaceholder": "스니펫 이름",
-      "content": "내용",
-      "contentPlaceholder": "삽입될 텍스트를 입력하세요",
-      "validation": {
-        "triggerRequired": "트리거를 입력하세요",
-        "triggerStartWith": "트리거는 @로 시작해야 합니다",
-        "triggerNoSpaces": "트리거에는 공백을 포함할 수 없습니다",
-        "triggerExists": "이미 존재하는 트리거입니다",
-        "nameRequired": "이름을 입력하세요",
-        "contentRequired": "내용을 입력하세요"
-      }
+        "reactTemplate": "React 컴포넌트 템플릿",
+        "tsInterface": "TypeScript 인터페이스",
+        "testTemplate": "테스트 코드 템플릿",
+        "apiTemplate": "API 요청 템플릿",
+        "tailwindStyle": "Tailwind 스타일 예시"
     },
-    "loadError": "설정을 불러올 수 없습니다."
-  },
-  "chat": {
-    "inputPlaceholder": "메시지를 입력하세요...",
-    "send": "전송",
-    "feedback": "피드백",
-    "attachImage": "이미지 첨부",
-    "summarizing": "요약 중...",
-    "contextSummary": "컨텍스트 요약",
-    "requestingFeedback": "피드백 요청 중...",
-    "dropImageHere": "이미지를 여기에 놓으세요",
-    "dropImageDescription": "이미지 파일을 드롭하여 첨부"
-  },
-  "session": {
-    "rename": "이름 변경",
-    "delete": "삭제",
-    "deleteConfirmTitle": "세션 삭제",
-    "deleteConfirmMessage": "이 세션을 삭제하시겠습니까?",
-    "deleteConfirmDetail": "삭제된 세션은 복구할 수 없습니다.",
-    "renameDialogTitle": "세션 이름 변경",
-    "renamePlaceholder": "세션 이름을 입력하세요",
-    "menu": "세션 메뉴",
-    "closeMenu": "메뉴 닫기",
-    "openMenu": "메뉴 열기"
-  },
-  "newSession": {
-    "title": "hey-claude",
-    "subtitle": "무엇을 도와드릴까요?",
-    "claudeCode": "Claude Code",
-    "quickChat": "일반 질문"
-  },
-  "setup": {
-    "refresh": "새로고침",
-    "refreshHint": "설치 후 페이지를 새로고침하세요.",
-    "claudeCode": {
-      "title": "Claude Code 설치 필요",
-      "description": "Claude Code가 설치되어 있지 않습니다."
+    "models": {
+        "mostPowerful": "가장 강력한 모델",
+        "balanced": "균형 잡힌 성능",
+        "fastResponse": "빠른 응답",
+        "latestPro": "최신 Pro 모델",
+        "experimental": "실험 모델",
+        "latestGPT": "최신 GPT 모델",
+        "reasoning": "추론 모델",
+        "lightReasoning": "경량 추론 모델",
+        "groqOptimized": "Groq 최적화",
+        "moeModel": "MoE 모델",
+        "lightModel": "경량 모델"
     },
-    "plugin": {
-      "title": "Plugin 설치 필요",
-      "description": "도구 사용 내역 수집을 위해 Plugin 설치가 필요합니다.",
-      "hint": "Claude Code에서 실행 후 페이지를 새로고침하세요."
+    "providers": {
+        "gemini": {
+            "name": "Gemini",
+            "description": "무료 (60req/min)"
+        },
+        "groq": {
+            "name": "Groq",
+            "description": "빠른 응답"
+        },
+        "codex": {
+            "name": "Codex",
+            "description": "OpenAI Codex"
+        }
     }
-  },
-  "time": {
-    "justNow": "방금 전",
-    "minutesAgo": "{{count}}분 전",
-    "hoursAgo": "{{count}}시간 전",
-    "yesterday": "어제",
-    "daysAgo": "{{count}}일 전",
-    "weeksAgo": "{{count}}주 전",
-    "monthsAgo": "{{count}}개월 전",
-    "yearsAgo": "{{count}}년 전"
-  },
-  "commands": {
-    "help": "도움말 보기",
-    "clear": "대화 내용 지우기",
-    "new": "새 세션 시작",
-    "summary": "컨텍스트 요약",
-    "settings": "설정 열기"
-  },
-  "snippets": {
-    "reactTemplate": "React 컴포넌트 템플릿",
-    "tsInterface": "TypeScript 인터페이스",
-    "testTemplate": "테스트 코드 템플릿",
-    "apiTemplate": "API 요청 템플릿",
-    "tailwindStyle": "Tailwind 스타일 예시"
-  },
-  "models": {
-    "mostPowerful": "가장 강력한 모델",
-    "balanced": "균형 잡힌 성능",
-    "fastResponse": "빠른 응답",
-    "latestPro": "최신 Pro 모델",
-    "experimental": "실험 모델",
-    "latestGPT": "최신 GPT 모델",
-    "reasoning": "추론 모델",
-    "lightReasoning": "경량 추론 모델",
-    "groqOptimized": "Groq 최적화",
-    "moeModel": "MoE 모델",
-    "lightModel": "경량 모델"
-  },
-  "providers": {
-    "gemini": {
-      "name": "Gemini",
-      "description": "무료 (60req/min)"
-    },
-    "groq": {
-      "name": "Groq",
-      "description": "빠른 응답"
-    },
-    "codex": {
-      "name": "Codex",
-      "description": "OpenAI Codex"
-    }
-  }
 }
