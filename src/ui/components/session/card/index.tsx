@@ -26,28 +26,37 @@ const SessionCard = ({
     const typeIcon = session.type === "claude-code" ? <Terminal size={14} /> : <MessageCircle size={14} />;
     const [menuOpen, setMenuOpen] = useState(false);
 
-    // Determine session state
-    const hasBackgroundTasks = (session.backgroundTasksCount ?? 0) > 0;
-    const isStreaming = session.streamStatus === "streaming";
-    const isIdle = !hasBackgroundTasks && !isStreaming;
+    // Determine session state based on streamStatus
+    const streamStatus = session.streamStatus || "idle";
+    const isIdle = streamStatus === "idle";
 
     // Status indicator color
     const getStatusColor = () => {
-        if (hasBackgroundTasks) return "bg-success"; // Green
-        if (isStreaming) return "bg-info"; // Blue
+        if (streamStatus === "background_tasks") return "bg-success"; // Green
+        if (streamStatus === "streaming") return "bg-info"; // Blue
         return "bg-text-tertiary"; // Gray
     };
 
     // Status text
     const getStatusText = () => {
-        if (hasBackgroundTasks) {
+        if (streamStatus === "background_tasks") {
             return t("session.backgroundTasks", {count: session.backgroundTasksCount || 0});
         }
-        if (isStreaming) {
+        if (streamStatus === "streaming") {
             return t("session.streaming");
         }
         return ""; // Don't show idle status
     };
+
+    // Status text color
+    const getStatusTextColor = () => {
+        if (streamStatus === "background_tasks") return "text-success"; // Green
+        if (streamStatus === "streaming") return "text-info"; // Blue
+        return "text-text-secondary";
+    };
+
+    // Show ping animation for background tasks
+    const shouldPing = streamStatus === "background_tasks";
 
     const handleMenuClick = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -75,10 +84,10 @@ const SessionCard = ({
         >
             {/* Status Indicator */}
             {!isIdle && (
-                <div className="absolute right-2 top-2">
+                <div className="absolute right-3 top-3">
                     <div className="relative flex items-center justify-center w-3 h-3">
-                        <span className={`absolute inline-flex h-full w-full rounded-full ${getStatusColor()} opacity-75 ${hasBackgroundTasks ? "animate-ping" : ""}`} />
-                        <span className={`relative inline-flex rounded-full h-2 w-2 ${getStatusColor()}`} />
+                        {shouldPing && <span className={`absolute inline-flex h-full w-full rounded-full ${getStatusColor()} opacity-75 animate-ping`} />}
+                        <span className={`relative inline-flex rounded-full h-3 w-3 ${getStatusColor()}`} />
                     </div>
                 </div>
             )}
@@ -91,7 +100,7 @@ const SessionCard = ({
             </div>
 
             {/* Status Text */}
-            {getStatusText() && <div className="text-xs text-text-secondary mb-1">{getStatusText()}</div>}
+            {getStatusText() && <div className={`text-xs ${getStatusTextColor()} mb-1 font-medium`}>{getStatusText()}</div>}
 
             <div className="text-xs text-text-tertiary">{formatRelativeTime(session.updatedAt, t)}</div>
 

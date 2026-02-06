@@ -21,16 +21,11 @@ const SessionList = ({
 }: SessionListProps) => {
   const {t} = useTranslation();
 
-  // Determine if a session is running
-  const isRunning = (session: Session) => {
-    const hasBackgroundTasks = (session.backgroundTasksCount ?? 0) > 0;
-    const isStreaming = session.streamStatus === "streaming";
-    return hasBackgroundTasks || isStreaming;
-  };
-
-  // Group sessions by running state
-  const activeSessions = sessions.filter(isRunning);
-  const idleSessions = sessions.filter((s) => !isRunning(s));
+  // Group sessions by running state based on streamStatus
+  const activeSessions = sessions.filter(
+    (s) => s.streamStatus === "streaming" || s.streamStatus === "background_tasks"
+  );
+  const idleSessions = sessions.filter((s) => !s.streamStatus || s.streamStatus === "idle");
 
   return (
     <div className="flex flex-col gap-6">
