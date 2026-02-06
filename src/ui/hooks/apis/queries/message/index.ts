@@ -150,38 +150,6 @@ const processSSEStream = async (
                                     };
                                 }
                             });
-                        } else {
-                            // 다른 tool_use는 화면에 표시
-                            const toolInfo = `\n🔧 [${data.tool_name}] 실행 중...\n`;
-                            assistantContent += toolInfo;
-
-                            queryClient.setQueryData(["session", sessionId], (old: any) => {
-                                if (!old) return old;
-
-                                const messages = old.messages || [];
-                                const lastMsg = messages[messages.length - 1];
-
-                                if (lastMsg?.id === tempAssistantMsgId) {
-                                    return {
-                                        ...old,
-                                        messages: [...messages.slice(0, -1), {...lastMsg, content: assistantContent}]
-                                    };
-                                } else {
-                                    return {
-                                        ...old,
-                                        messages: [
-                                            ...messages,
-                                            {
-                                                id: tempAssistantMsgId,
-                                                session_id: sessionId,
-                                                role: "assistant",
-                                                content: assistantContent,
-                                                timestamp: new Date().toISOString()
-                                            }
-                                        ]
-                                    };
-                                }
-                            });
                         }
                     }
                     // error
@@ -269,9 +237,27 @@ export const useSendMessageStream = () => {
                     throw new Error(`HTTP ${response.status}`);
                 }
 
+                // 빈 assistant 메시지 즉시 추가 (로딩 커서 표시용)
+                queryClient.setQueryData(["session", sessionId], (old: any) => {
+                    if (!old) return old;
+
+                    const loadingMessage = {
+                        id: tempAssistantMsgId,
+                        session_id: sessionId,
+                        role: "assistant",
+                        content: "",
+                        timestamp: new Date().toISOString()
+                    };
+
+                    return {
+                        ...old,
+                        messages: [...(old.messages || []), loadingMessage]
+                    };
+                });
+
                 // SSE 스트리밍 처리 (공통 헬퍼 사용)
                 await processSSEStream(response, sessionId, tempAssistantMsgId, queryClient, {
-                    onError: (error) => {
+                    onError: error => {
                         setError(error);
                         setIsSending(false);
                     },
@@ -326,7 +312,7 @@ export const useSubmitQuestionAnswer = () => {
 
                 // 2. SSE 스트리밍 처리 (공통 헬퍼 사용)
                 await processSSEStream(response, sessionId, tempAssistantMsgId, queryClient, {
-                    onError: (error) => {
+                    onError: error => {
                         setError(error);
                         setIsSubmitting(false);
                     },
