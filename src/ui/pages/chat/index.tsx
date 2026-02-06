@@ -30,8 +30,11 @@ const ChatPage = () => {
     // 답변 제출
     const {submitAnswer, isSubmitting} = useSubmitQuestionAnswer();
 
-    // 스트리밍 상태 확인
-    const isStreaming = session?.streamStatus === "streaming" || isSending;
+    // 스트리밍 상태 확인 (백그라운드 작업 포함)
+    const isStreaming =
+        session?.streamStatus === "streaming" ||
+        session?.streamStatus === "background_tasks" ||
+        isSending;
 
     // 미답변 질문 체크
     const hasUnansweredQuestion = messages?.some(msg => msg.questionData && !msg.questionSubmitted) || false;

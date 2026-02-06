@@ -154,6 +154,22 @@ router.post("/stream", async (req, res) => {
         const finalPrompt = context ? `${context}\n\n${prompt}` : prompt;
         console.log("[CHAT STREAM] Context prepared, final prompt length:", finalPrompt.length);
 
+        // 기존 프로세스 종료 (백그라운드 작업 실행 중이 아닐 때만)
+        const existingProcess = activeStreams.get(sessionId);
+        const currentStatus = sessionStatusManager.getStatus(sessionId);
+        const hasBackgroundTasks = currentStatus && currentStatus.backgroundTasksCount > 0;
+
+        if (existingProcess && !existingProcess.killed) {
+            if (hasBackgroundTasks) {
+                console.log("[CHAT STREAM] Background tasks running, keeping existing process alive for session:", sessionId);
+                // 백그라운드 작업 실행 중이므로 프로세스 유지
+            } else {
+                console.log("[CHAT STREAM] Killing existing process for session:", sessionId);
+                existingProcess.kill();
+                activeStreams.delete(sessionId);
+            }
+        }
+
         // Claude CLI 호출
         console.log("[CHAT STREAM] Calling Claude CLI with:", {
             sessionId: session.claude_session_id,
@@ -403,7 +419,22 @@ router.post("/tool-result", async (req, res) => {
         // Set status to streaming
         sessionStatusManager.setStatus(sessionId, "streaming");
 
-        // 5. Claude CLI 호출 (--resume)
+        // 5. 기존 프로세스 종료 (백그라운드 작업 실행 중이 아닐 때만)
+        const existingProcess = activeStreams.get(sessionId);
+        const currentStatus = sessionStatusManager.getStatus(sessionId);
+        const hasBackgroundTasks = currentStatus && currentStatus.backgroundTasksCount > 0;
+
+        if (existingProcess && !existingProcess.killed) {
+            if (hasBackgroundTasks) {
+                console.log("[TOOL RESULT] Background tasks running, keeping existing process alive");
+            } else {
+                console.log("[TOOL RESULT] Killing existing process for session:", sessionId);
+                existingProcess.kill();
+                activeStreams.delete(sessionId);
+            }
+        }
+
+        // 6. Claude CLI 호출 (--resume)
         const projectPath = process.cwd();
         console.log("[TOOL RESULT] Calling Claude CLI with:", {
             sessionId: session.claude_session_id,
