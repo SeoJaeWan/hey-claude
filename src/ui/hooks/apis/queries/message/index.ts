@@ -1,4 +1,4 @@
-import {useState, useCallback} from "react";
+import {useState, useCallback, useMemo} from "react";
 import {useQueryClient} from "@tanstack/react-query";
 import {useSessionQuery} from "../session";
 import type {Message} from "../../../../types";
@@ -35,7 +35,10 @@ const fileToBase64 = (file: File): Promise<string> => {
 export const useMessagesQuery = (sessionId: string | undefined) => {
     const {data: sessionData, isLoading} = useSessionQuery(sessionId);
 
-    const messages = sessionData?.messages ? (sessionData.messages as any[]).map(convertMessage) : [];
+    const messages = useMemo(() => {
+        if (!sessionData?.messages) return [];
+        return (sessionData.messages as any[]).map(convertMessage);
+    }, [sessionData?.messages]);
 
     return {
         data: messages,

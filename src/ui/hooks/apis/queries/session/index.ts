@@ -1,5 +1,5 @@
 import {useQuery, useMutation, useQueryClient} from "@tanstack/react-query";
-import {useEffect} from "react";
+import {useEffect, useRef} from "react";
 import {api} from "../../../../utils/api";
 import type {Session, SessionStreamStatus} from "../../../../types";
 import {useSSEContext} from "../../../../contexts/sse";
@@ -214,6 +214,10 @@ export const useSSEConnection = (
     const queryClient = useQueryClient();
     const {subscribe, unsubscribe, addEventHandler} = useSSEContext();
 
+    // callbacks를 ref로 관리하여 의존성 배열에서 제거
+    const callbacksRef = useRef(callbacks);
+    callbacksRef.current = callbacks;
+
     useEffect(() => {
         if (!sessionId) return;
 
@@ -315,16 +319,13 @@ export const useSSEConnection = (
             else if (data.type === "turn_complete") {
                 console.log("[SSE] turn_complete");
 
-                // 서버 데이터 동기화
-                queryClient.invalidateQueries({queryKey: ["session", sessionId]});
-
                 // 콜백 호출 (로딩 해제)
-                callbacks?.onTurnComplete?.();
+                callbacksRef.current?.onTurnComplete?.();
             }
             // loading_start 처리 (메시지 전송 시)
             else if (data.type === "loading_start") {
                 console.log("[SSE] loading_start");
-                callbacks?.onLoadingStart?.();
+                callbacksRef.current?.onLoadingStart?.();
             }
             // session_status 처리 (SSE 재연결 시 초기 동기화)
             else if (data.type === "session_status") {
@@ -355,5 +356,5 @@ export const useSSEConnection = (
             unsubscribe();
             cleanupHandler();
         };
-    }, [sessionId, queryClient, callbacks, subscribe, unsubscribe, addEventHandler]);
+    }, [sessionId, subscribe, unsubscribe, addEventHandler]);
 };
