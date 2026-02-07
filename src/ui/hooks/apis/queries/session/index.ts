@@ -2,6 +2,7 @@ import {useQuery, useMutation, useQueryClient} from "@tanstack/react-query";
 import {useEffect} from "react";
 import {api} from "../../../../utils/api";
 import type {Session, SessionStreamStatus} from "../../../../types";
+import {useSSEContext} from "../../../../contexts/sse";
 
 // snake_case → camelCase 변환 함수
 const mapSession = (raw: any): Session => ({
@@ -140,77 +141,66 @@ export const useDeleteSession = () => {
 // 전역 SSE 연결 (세션 상태 업데이트)
 export const useGlobalSSE = (projectPath?: string) => {
     const queryClient = useQueryClient();
+    const {addEventHandler} = useSSEContext();
 
     useEffect(() => {
-        // EventSource 연결
-        const eventSource = new EventSource("/api/sse/global");
+        const handler = (data: any) => {
+            // session_data_updated: 다른 세션의 데이터가 변경됨 (세션 SSE 끊긴 동안)
+            if (data.type === "session_data_updated") {
+                const {sessionId: updatedSessionId, eventType} = data;
+                console.log("[Global SSE] session_data_updated:", {updatedSessionId, eventType});
 
-        eventSource.addEventListener("message", (event) => {
-            try {
-                const parsed = JSON.parse(event.data);
+                // 해당 세션의 캐시 무효화 → 돌아갔을 때 자동 refetch
+                queryClient.invalidateQueries({queryKey: ["session", updatedSessionId]});
 
-                // session_data_updated: 다른 세션의 데이터가 변경됨 (세션 SSE 끊긴 동안)
-                if (parsed.type === "session_data_updated") {
-                    const {sessionId: updatedSessionId, eventType} = parsed;
-                    console.log("[Global SSE] session_data_updated:", {updatedSessionId, eventType});
-
-                    // 해당 세션의 캐시 무효화 → 돌아갔을 때 자동 refetch
-                    queryClient.invalidateQueries({queryKey: ["session", updatedSessionId]});
-
-                    // turn_complete이면 세션 목록도 갱신
-                    if (eventType === "turn_complete") {
-                        queryClient.invalidateQueries({queryKey: ["sessions"]});
-                    }
+                // turn_complete이면 세션 목록도 갱신
+                if (eventType === "turn_complete") {
+                    queryClient.invalidateQueries({queryKey: ["sessions"]});
                 }
-                // session_status 타입 처리
-                else if (parsed.type === "session_status") {
-                    const {sessionId, status, backgroundTasksCount} = parsed.data;
-
-                    console.log("[Global SSE] Received session_status:", {sessionId, status, backgroundTasksCount});
-
-                    // React Query 캐시 업데이트
-                    queryClient.setQueryData(["sessions", projectPath], (old: Session[] | undefined) => {
-                        if (!old) return old;
-
-                        const updated = old.map((session) => {
-                            if (session.id === sessionId) {
-                                return {
-                                    ...session,
-                                    streamStatus: status as SessionStreamStatus,
-                                    backgroundTasksCount
-                                };
-                            }
-                            return session;
-                        });
-
-                        // 정렬 적용
-                        return sortSessions(updated);
-                    });
-
-                    // 세션 상세 캐시도 업데이트
-                    queryClient.setQueryData(["session", sessionId], (old: Session | undefined) => {
-                        if (!old) return old;
-                        return {
-                            ...old,
-                            streamStatus: status as SessionStreamStatus,
-                            backgroundTasksCount
-                        };
-                    });
-                }
-            } catch (error) {
-                console.error("Failed to parse global SSE message:", error);
             }
-        });
+            // session_status 타입 처리
+            else if (data.type === "session_status") {
+                const {sessionId, status, backgroundTasksCount} = data.data;
 
-        eventSource.addEventListener("error", (error) => {
-            console.error("Global SSE error:", error);
-        });
+                console.log("[Global SSE] Received session_status:", {sessionId, status, backgroundTasksCount});
 
-        // 컴포넌트 unmount 시 연결 해제
-        return () => {
-            eventSource.close();
+                // React Query 캐시 업데이트
+                queryClient.setQueryData(["sessions", projectPath], (old: Session[] | undefined) => {
+                    if (!old) return old;
+
+                    const updated = old.map((session) => {
+                        if (session.id === sessionId) {
+                            return {
+                                ...session,
+                                streamStatus: status as SessionStreamStatus,
+                                backgroundTasksCount
+                            };
+                        }
+                        return session;
+                    });
+
+                    // 정렬 적용
+                    return sortSessions(updated);
+                });
+
+                // 세션 상세 캐시도 업데이트
+                queryClient.setQueryData(["session", sessionId], (old: Session | undefined) => {
+                    if (!old) return old;
+                    return {
+                        ...old,
+                        streamStatus: status as SessionStreamStatus,
+                        backgroundTasksCount
+                    };
+                });
+            }
         };
-    }, [queryClient, projectPath]);
+
+        // Register handler and get cleanup function
+        const cleanup = addEventHandler(handler);
+
+        // Return cleanup on unmount
+        return cleanup;
+    }, [queryClient, projectPath, addEventHandler]);
 };
 
 // 세션별 SSE 연결 (Hooks 이벤트 수신)
@@ -222,151 +212,148 @@ export const useSSEConnection = (
     }
 ) => {
     const queryClient = useQueryClient();
+    const {subscribe, unsubscribe, addEventHandler} = useSSEContext();
 
     useEffect(() => {
         if (!sessionId) return;
 
-        // EventSource 연결
-        const eventSource = new EventSource(`/api/sse/${sessionId}`);
+        // Subscribe to session
+        subscribe(sessionId);
 
-        eventSource.addEventListener("message", (event) => {
-            try {
-                const data = JSON.parse(event.data);
+        // Create stable handler
+        const handler = (data: any) => {
+            // tool_use_message 처리 (PostToolUse Hook)
+            if (data.type === "tool_use_message") {
+                const message = data.message;
+                console.log("[SSE] tool_use_message:", message.id);
 
-                // tool_use_message 처리 (PostToolUse Hook)
-                if (data.type === "tool_use_message") {
-                    const message = data.message;
-                    console.log("[SSE] tool_use_message:", message.id);
+                queryClient.setQueryData(["session", sessionId], (old: any) => {
+                    if (!old) return old;
+                    const messages = old.messages || [];
 
-                    queryClient.setQueryData(["session", sessionId], (old: any) => {
-                        if (!old) return old;
-                        const messages = old.messages || [];
+                    // 중복 체크
+                    if (messages.some((m: any) => m.id === message.id)) return old;
 
-                        // 중복 체크
-                        if (messages.some((m: any) => m.id === message.id)) return old;
-
-                        return {
-                            ...old,
-                            messages: [
-                                ...messages,
-                                {
-                                    id: message.id,
-                                    session_id: message.sessionId,
-                                    role: message.role,
-                                    content: message.content,
-                                    toolUsages: message.toolUsages,
-                                    timestamp: message.createdAt
-                                }
-                            ]
-                        };
-                    });
-                }
-                // ask_user_question 처리 (PreToolUse Hook)
-                else if (data.type === "ask_user_question") {
-                    console.log("[SSE] ask_user_question:", data.toolUseId);
-
-                    const questionData = {
-                        tool_use_id: data.toolUseId,
-                        questions: data.questions
+                    return {
+                        ...old,
+                        messages: [
+                            ...messages,
+                            {
+                                id: message.id,
+                                session_id: message.sessionId,
+                                role: message.role,
+                                content: message.content,
+                                toolUsages: message.toolUsages,
+                                timestamp: message.createdAt
+                            }
+                        ]
                     };
-                    const questionMsgId = `question-${data.toolUseId}`;
-
-                    queryClient.setQueryData(["session", sessionId], (old: any) => {
-                        if (!old) return old;
-                        const messages = old.messages || [];
-
-                        // 중복 체크
-                        if (messages.some((m: any) => m.id === questionMsgId)) return old;
-
-                        return {
-                            ...old,
-                            messages: [
-                                ...messages,
-                                {
-                                    id: questionMsgId,
-                                    session_id: sessionId,
-                                    role: "assistant",
-                                    content: "",
-                                    timestamp: new Date().toISOString(),
-                                    isQuestion: true,
-                                    questionData
-                                }
-                            ]
-                        };
-                    });
-                }
-                // assistant_message 처리 (Stop Hook → transcript 파싱 결과)
-                else if (data.type === "assistant_message") {
-                    const message = data.message;
-                    console.log("[SSE] assistant_message:", message.id, `(${message.content?.length} chars)`);
-
-                    queryClient.setQueryData(["session", sessionId], (old: any) => {
-                        if (!old) return old;
-                        const messages = old.messages || [];
-
-                        // 중복 체크
-                        if (messages.some((m: any) => m.id === message.id)) return old;
-
-                        return {
-                            ...old,
-                            messages: [
-                                ...messages,
-                                {
-                                    id: message.id,
-                                    session_id: message.sessionId,
-                                    role: "assistant",
-                                    content: message.content,
-                                    timestamp: message.createdAt
-                                }
-                            ]
-                        };
-                    });
-                }
-                // turn_complete 처리 (Stop Hook → 로딩 해제)
-                else if (data.type === "turn_complete") {
-                    console.log("[SSE] turn_complete");
-
-                    // 서버 데이터 동기화
-                    queryClient.invalidateQueries({queryKey: ["session", sessionId]});
-
-                    // 콜백 호출 (로딩 해제)
-                    callbacks?.onTurnComplete?.();
-                }
-                // loading_start 처리 (메시지 전송 시)
-                else if (data.type === "loading_start") {
-                    console.log("[SSE] loading_start");
-                    callbacks?.onLoadingStart?.();
-                }
-                // session_status 처리 (SSE 재연결 시 초기 동기화)
-                else if (data.type === "session_status") {
-                    const {status, backgroundTasksCount} = data.data || data;
-                    console.log("[SSE] session_status:", status);
-
-                    queryClient.setQueryData(["session", sessionId], (old: any) => {
-                        if (!old) return old;
-                        return {
-                            ...old,
-                            streamStatus: status,
-                            backgroundTasksCount: backgroundTasksCount || 0
-                        };
-                    });
-                }
-                // error 처리
-                else if (data.type === "error") {
-                    console.error("[SSE] Error:", data.content || data.error);
-                    queryClient.invalidateQueries({queryKey: ["session", sessionId]});
-                }
-            } catch (error) {
-                console.error("Failed to parse SSE message:", error);
+                });
             }
-        });
+            // ask_user_question 처리 (PreToolUse Hook)
+            else if (data.type === "ask_user_question") {
+                console.log("[SSE] ask_user_question:", data.toolUseId);
 
-        eventSource.addEventListener("error", (error) => {
-            console.error("Session SSE error:", error);
-        });
+                const questionData = {
+                    tool_use_id: data.toolUseId,
+                    questions: data.questions
+                };
+                const questionMsgId = `question-${data.toolUseId}`;
 
-        return () => {
-            eventSource.close();
+                queryClient.setQueryData(["session", sessionId], (old: any) => {
+                    if (!old) return old;
+                    const messages = old.messages || [];
+
+                    // 중복 체크
+                    if (messages.some((m: any) => m.id === questionMsgId)) return old;
+
+                    return {
+                        ...old,
+                        messages: [
+                            ...messages,
+                            {
+                                id: questionMsgId,
+                                session_id: sessionId,
+                                role: "assistant",
+                                content: "",
+                                timestamp: new Date().toISOString(),
+                                isQuestion: true,
+                                questionData
+                            }
+                        ]
+                    };
+                });
+            }
+            // assistant_message 처리 (Stop Hook → transcript 파싱 결과)
+            else if (data.type === "assistant_message") {
+                const message = data.message;
+                console.log("[SSE] assistant_message:", message.id, `(${message.content?.length} chars)`);
+
+                queryClient.setQueryData(["session", sessionId], (old: any) => {
+                    if (!old) return old;
+                    const messages = old.messages || [];
+
+                    // 중복 체크
+                    if (messages.some((m: any) => m.id === message.id)) return old;
+
+                    return {
+                        ...old,
+                        messages: [
+                            ...messages,
+                            {
+                                id: message.id,
+                                session_id: message.sessionId,
+                                role: "assistant",
+                                content: message.content,
+                                timestamp: message.createdAt
+                            }
+                        ]
+                    };
+                });
+            }
+            // turn_complete 처리 (Stop Hook → 로딩 해제)
+            else if (data.type === "turn_complete") {
+                console.log("[SSE] turn_complete");
+
+                // 서버 데이터 동기화
+                queryClient.invalidateQueries({queryKey: ["session", sessionId]});
+
+                // 콜백 호출 (로딩 해제)
+                callbacks?.onTurnComplete?.();
+            }
+            // loading_start 처리 (메시지 전송 시)
+            else if (data.type === "loading_start") {
+                console.log("[SSE] loading_start");
+                callbacks?.onLoadingStart?.();
+            }
+            // session_status 처리 (SSE 재연결 시 초기 동기화)
+            else if (data.type === "session_status") {
+                const {status, backgroundTasksCount} = data.data || data;
+                console.log("[SSE] session_status:", status);
+
+                queryClient.setQueryData(["session", sessionId], (old: any) => {
+                    if (!old) return old;
+                    return {
+                        ...old,
+                        streamStatus: status,
+                        backgroundTasksCount: backgroundTasksCount || 0
+                    };
+                });
+            }
+            // error 처리
+            else if (data.type === "error") {
+                console.error("[SSE] Error:", data.content || data.error);
+                queryClient.invalidateQueries({queryKey: ["session", sessionId]});
+            }
         };
-    }, [sessionId, queryClient, callbacks]);
+
+        // Register handler and get cleanup function
+        const cleanupHandler = addEventHandler(handler);
+
+        // Cleanup: unsubscribe and remove handler
+        return () => {
+            unsubscribe();
+            cleanupHandler();
+        };
+    }, [sessionId, queryClient, callbacks, subscribe, unsubscribe, addEventHandler]);
 };
