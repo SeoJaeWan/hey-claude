@@ -6,6 +6,23 @@ import { execSync } from "child_process";
 
 const router: RouterType = Router();
 
+// Setup cache
+let setupStatusCache: {
+    claudeCode: { installed: boolean; version?: string };
+    plugin: { installed: boolean; version?: string };
+} | null = null;
+
+/**
+ * Setup cache 초기화
+ */
+export const initSetupCache = (): void => {
+    setupStatusCache = {
+        claudeCode: checkClaudeCode(),
+        plugin: checkClaudeCodePlugin(),
+    };
+    console.log("[SETUP] Cache initialized:", setupStatusCache);
+};
+
 /**
  * Claude Code CLI 설치 여부를 확인합니다.
  */
@@ -117,14 +134,13 @@ const checkClaudeCodePlugin = (): { installed: boolean; version?: string } => {
 // GET /api/setup/status - Claude Code 및 Plugin 설치 상태 확인
 router.get("/status", async (_req, res) => {
     try {
-        const claudeCode = checkClaudeCode();
-        const plugin = checkClaudeCodePlugin();
+        // 캐시가 없으면 초기화
+        if (!setupStatusCache) {
+            initSetupCache();
+        }
 
         res.json({
-            data: {
-                claudeCode,
-                plugin,
-            },
+            data: setupStatusCache,
         });
     } catch (error) {
         console.error("Setup status check failed:", error);

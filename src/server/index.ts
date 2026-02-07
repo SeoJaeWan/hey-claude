@@ -6,7 +6,7 @@ import fs from "fs/promises";
 import path from "path";
 
 // Import routes
-import setupRouter from "./routes/setup.js";
+import setupRouter, { initSetupCache } from "./routes/setup.js";
 import hooksRouter from "./routes/hooks.js";
 import sessionsRouter from "./routes/sessions.js";
 import chatRouter from "./routes/chat.js";
@@ -20,7 +20,9 @@ import ptyRouter from "./routes/pty.js";
 
 // Import services
 import { initDatabase } from "./services/database.js";
-import { getAllCommands, type CommandInfo } from "./services/claude-commands-detector.js";
+import { getAllCommands, loadCommandsFromDB, saveCommandsToDB, type CommandInfo } from "./services/claude-commands-detector.js";
+import { initCliToolsCache } from "./services/cli-detector.js";
+import { readConfig } from "./services/config.js";
 import sessionStatusManager from "./services/sessionStatusManager.js";
 import sseManager from "./services/sseManager.js";
 import claudeProcessManager from "./services/claudeProcessManager.js";
@@ -102,22 +104,33 @@ const setupCleanup = (projectPath: string): void => {
 };
 
 /**
- * 명령어 캐시 갱신 (백그라운드)
+ * 명령어 캐시 갱신 (DB에서 먼저 로드, 백그라운드에서 최신 데이터 갱신)
  */
 const refreshCommandsCache = async (projectPath: string): Promise<void> => {
+    // 1. DB에서 먼저 로드 (즉시 사용 가능)
+    const dbCommands = loadCommandsFromDB(projectPath);
+    if (dbCommands.length > 0) {
+        commandsCache = dbCommands;
+        console.log(`[COMMANDS] Loaded ${dbCommands.length} commands from DB (instant)`);
+    }
+
+    // 2. 백그라운드에서 최신 데이터 갱신
     try {
-        console.log("Refreshing commands cache...");
-        const commands = await getAllCommands(projectPath);
-        commandsCache = commands;
+        console.log("[COMMANDS] Refreshing from filesystem/CLI (background)...");
+        const freshCommands = await getAllCommands(projectPath);
+        commandsCache = freshCommands;
 
-        const localCount = commands.filter((cmd) => cmd.source === "local").length;
-        const builtinCount = commands.filter((cmd) => cmd.source === "builtin").length;
+        // 3. DB 업데이트
+        saveCommandsToDB(projectPath, freshCommands);
 
+        const localCount = freshCommands.filter((cmd) => cmd.source === "local").length;
+        const builtinCount = freshCommands.filter((cmd) => cmd.source === "builtin").length;
         console.log(
-            `Commands cache refreshed: ${localCount} local, ${builtinCount} builtin (total: ${commands.length})`
+            `[COMMANDS] Cache refreshed: ${localCount} local, ${builtinCount} builtin (total: ${freshCommands.length})`
         );
     } catch (error) {
-        console.error("Failed to refresh commands cache:", error);
+        console.error("[COMMANDS] Failed to refresh from filesystem/CLI:", error);
+        // DB에서 로드한 데이터가 있으면 그대로 사용
     }
 };
 
@@ -208,13 +221,25 @@ const startServer = async (
         console.log("Initializing database...");
         initDatabase(projectPath);
 
-        // 2. SessionStatusManager와 SSEManager 연결
+        // 2. Config 캐시 워밍업
+        console.log("Warming up config cache...");
+        const config = await readConfig(projectPath);
+
+        // 3. Setup 캐시 초기화 (동기, 1회만)
+        console.log("Initializing setup cache...");
+        initSetupCache();
+
+        // 4. CLI 도구 캐시 초기화 (비동기, config에서 apiKeys 필요)
+        console.log("Initializing CLI tools cache...");
+        await initCliToolsCache(config.apiKeys || {});
+
+        // 5. SessionStatusManager와 SSEManager 연결
         console.log("Initializing session status manager...");
         sessionStatusManager.setBroadcastCallback((data) => {
             sseManager.broadcastGlobal(data);
         });
 
-        // 3. SSE 세션 클라이언트가 0이 되면 idle PTY 종료 (10초 딜레이)
+        // 6. SSE 세션 클라이언트가 0이 되면 idle PTY 종료 (10초 딜레이)
         sseManager.setOnSessionEmpty((sessionId) => {
             setTimeout(() => {
                 // 딜레이 후에도 클라이언트가 없고 idle이면 종료
@@ -228,13 +253,13 @@ const startServer = async (
             }, 10000);
         });
 
-        // 4. Cleanup 핸들러 설정
+        // 7. Cleanup 핸들러 설정
         setupCleanup(projectPath);
 
-        // 5. 서버 시작
+        // 8. 서버 시작
         await startServer(projectPath, DEFAULT_PORT);
 
-        // 6. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
+        // 9. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
         refreshCommandsCache(projectPath);
     } catch (err) {
         console.error("Failed to start server:", err);

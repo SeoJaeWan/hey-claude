@@ -14,6 +14,9 @@ export interface CliProvider {
     description?: string;
 }
 
+// CLI 도구 캐시 (서버 시작 시 1회 초기화)
+let cliToolsCache: CliProvider[] | null = null;
+
 /**
  * CLI 도구의 설치 여부와 버전을 확인합니다.
  */
@@ -132,4 +135,19 @@ export const detectCliTools = async (apiKeys: { groq?: string }): Promise<CliPro
     });
 
     return providers;
+};
+
+/**
+ * CLI 도구 캐시 초기화 (서버 시작 시 1회 실행)
+ */
+export const initCliToolsCache = async (apiKeys: { groq?: string }): Promise<void> => {
+    cliToolsCache = await detectCliTools(apiKeys);
+    console.log("[CLI] Cache initialized:", cliToolsCache.length, "providers");
+};
+
+/**
+ * 캐시된 CLI 도구 정보 반환
+ */
+export const getCachedCliTools = (): CliProvider[] | null => {
+    return cliToolsCache;
 };
