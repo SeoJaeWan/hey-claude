@@ -17,6 +17,7 @@ export interface SessionStatusData {
 class SessionStatusManager {
     private statuses: Map<string, SessionStatusData> = new Map();
     private broadcastCallback: ((data: SessionStatusData) => void) | null = null;
+    private lastProcessedUuids: Map<string, string> = new Map();
 
     /**
      * Register broadcast callback (called by SSEManager)
@@ -116,10 +117,25 @@ class SessionStatusManager {
     }
 
     /**
+     * Get last processed transcript UUID for a session
+     */
+    public getLastProcessedUuid(sessionId: string): string | undefined {
+        return this.lastProcessedUuids.get(sessionId);
+    }
+
+    /**
+     * Set last processed transcript UUID for a session
+     */
+    public setLastProcessedUuid(sessionId: string, uuid: string): void {
+        this.lastProcessedUuids.set(sessionId, uuid);
+    }
+
+    /**
      * Remove session status (cleanup)
      */
     public removeSession(sessionId: string): void {
         this.statuses.delete(sessionId);
+        this.lastProcessedUuids.delete(sessionId);
         console.log(`[SESSION STATUS] Removed session ${sessionId}`);
     }
 }

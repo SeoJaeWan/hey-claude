@@ -18,7 +18,7 @@ process.stdin.on('data', (chunk) => {
 process.stdin.on('end', async () => {
     try {
         const hookData = JSON.parse(inputData);
-        const { session_id, cwd } = hookData;
+        const { session_id, cwd, transcript_path } = hookData;
 
         // server.lock 파일에서 포트 확인
         const lockPath = path.join(cwd, '.hey-claude', 'server.lock');
@@ -46,6 +46,7 @@ process.stdin.on('end', async () => {
         const payload = JSON.stringify({
             sessionId: session_id,
             projectPath: cwd,
+            transcript_path: transcript_path || '',
         });
 
         const options = {

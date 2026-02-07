@@ -200,8 +200,14 @@ export const useGlobalSSE = (projectPath?: string) => {
     }, [queryClient, projectPath]);
 };
 
-// 세션별 SSE 연결 (메시지 스트리밍)
-export const useSSEConnection = (sessionId: string | undefined) => {
+// 세션별 SSE 연결 (Hooks 이벤트 수신)
+export const useSSEConnection = (
+    sessionId: string | undefined,
+    callbacks?: {
+        onTurnComplete?: () => void;
+        onLoadingStart?: () => void;
+    }
+) => {
     const queryClient = useQueryClient();
 
     useEffect(() => {
@@ -210,33 +216,22 @@ export const useSSEConnection = (sessionId: string | undefined) => {
         // EventSource 연결
         const eventSource = new EventSource(`/api/sse/${sessionId}`);
 
-        const tempAssistantMsgId = `temp-assistant-${Date.now()}`;
-        let assistantContent = "";
-        let isQuestion = false;
-
         eventSource.addEventListener("message", (event) => {
             try {
                 const data = JSON.parse(event.data);
 
-                // tool_use_message 처리 (Phase 2에서 구현된 Hooks 데이터)
+                // tool_use_message 처리 (PostToolUse Hook)
                 if (data.type === "tool_use_message") {
                     const message = data.message;
+                    console.log("[SSE] tool_use_message:", message.id);
 
-                    console.log("[SSE] Received tool_use_message:", message);
-
-                    // React Query 캐시 업데이트
                     queryClient.setQueryData(["session", sessionId], (old: any) => {
                         if (!old) return old;
-
                         const messages = old.messages || [];
 
                         // 중복 체크
-                        if (messages.some((m: any) => m.id === message.id)) {
-                            console.log("[SSE] Duplicate message detected, skipping:", message.id);
-                            return old;
-                        }
+                        if (messages.some((m: any) => m.id === message.id)) return old;
 
-                        // 새 메시지 추가
                         return {
                             ...old,
                             messages: [
@@ -253,30 +248,23 @@ export const useSSEConnection = (sessionId: string | undefined) => {
                         };
                     });
                 }
-                // ask_user_question 처리 (Phase 2에서 구현된 PreToolUse Hook)
+                // ask_user_question 처리 (PreToolUse Hook)
                 else if (data.type === "ask_user_question") {
-                    console.log("[SSE] Received ask_user_question:", data);
+                    console.log("[SSE] ask_user_question:", data.toolUseId);
 
                     const questionData = {
                         tool_use_id: data.toolUseId,
                         questions: data.questions
                     };
-
-                    // 질문 메시지 추가 (임시 ID 사용)
                     const questionMsgId = `question-${data.toolUseId}`;
 
                     queryClient.setQueryData(["session", sessionId], (old: any) => {
                         if (!old) return old;
-
                         const messages = old.messages || [];
 
                         // 중복 체크
-                        if (messages.some((m: any) => m.id === questionMsgId)) {
-                            console.log("[SSE] Duplicate question detected, skipping:", questionMsgId);
-                            return old;
-                        }
+                        if (messages.some((m: any) => m.id === questionMsgId)) return old;
 
-                        // 질문 메시지 추가
                         return {
                             ...old,
                             messages: [
@@ -285,7 +273,7 @@ export const useSSEConnection = (sessionId: string | undefined) => {
                                     id: questionMsgId,
                                     session_id: sessionId,
                                     role: "assistant",
-                                    content: "", // 질문은 QuestionCard로 표시
+                                    content: "",
                                     timestamp: new Date().toISOString(),
                                     isQuestion: true,
                                     questionData
@@ -294,99 +282,47 @@ export const useSSEConnection = (sessionId: string | undefined) => {
                         };
                     });
                 }
-                // chunk 또는 question 처리 (기존 스트리밍 로직)
-                else if (data.type === "chunk" || data.type === "question") {
-                    if (data.type === "question") {
-                        isQuestion = true;
-                    }
+                // assistant_message 처리 (Stop Hook → transcript 파싱 결과)
+                else if (data.type === "assistant_message") {
+                    const message = data.message;
+                    console.log("[SSE] assistant_message:", message.id, `(${message.content?.length} chars)`);
 
-                    assistantContent += data.content;
-
-                    // React Query 캐시 업데이트
                     queryClient.setQueryData(["session", sessionId], (old: any) => {
                         if (!old) return old;
-
                         const messages = old.messages || [];
-                        const lastMsg = messages[messages.length - 1];
 
-                        if (lastMsg?.id === tempAssistantMsgId) {
-                            return {
-                                ...old,
-                                messages: [...messages.slice(0, -1), {...lastMsg, content: assistantContent, isQuestion}]
-                            };
-                        } else {
-                            return {
-                                ...old,
-                                messages: [
-                                    ...messages,
-                                    {
-                                        id: tempAssistantMsgId,
-                                        session_id: sessionId,
-                                        role: "assistant",
-                                        content: assistantContent,
-                                        timestamp: new Date().toISOString(),
-                                        isQuestion
-                                    }
-                                ]
-                            };
-                        }
+                        // 중복 체크
+                        if (messages.some((m: any) => m.id === message.id)) return old;
+
+                        return {
+                            ...old,
+                            messages: [
+                                ...messages,
+                                {
+                                    id: message.id,
+                                    session_id: message.sessionId,
+                                    role: "assistant",
+                                    content: message.content,
+                                    timestamp: message.createdAt
+                                }
+                            ]
+                        };
                     });
                 }
-                // tool_use 처리 (기존 AskUserQuestion 로직 - 하위 호환성)
-                else if (data.type === "tool_use") {
-                    if (data.tool_name === "AskUserQuestion") {
-                        const questionData = {
-                            tool_use_id: data.tool_use_id,
-                            questions: data.tool_input.questions
-                        };
+                // turn_complete 처리 (Stop Hook → 로딩 해제)
+                else if (data.type === "turn_complete") {
+                    console.log("[SSE] turn_complete");
 
-                        queryClient.setQueryData(["session", sessionId], (old: any) => {
-                            if (!old) return old;
-
-                            const messages = old.messages || [];
-                            const lastMsg = messages[messages.length - 1];
-
-                            if (lastMsg?.id === tempAssistantMsgId) {
-                                return {
-                                    ...old,
-                                    messages: [
-                                        ...messages.slice(0, -1),
-                                        {
-                                            ...lastMsg,
-                                            content: assistantContent,
-                                            isQuestion: true,
-                                            questionData
-                                        }
-                                    ]
-                                };
-                            } else {
-                                return {
-                                    ...old,
-                                    messages: [
-                                        ...messages,
-                                        {
-                                            id: tempAssistantMsgId,
-                                            session_id: sessionId,
-                                            role: "assistant",
-                                            content: assistantContent,
-                                            timestamp: new Date().toISOString(),
-                                            isQuestion: true,
-                                            questionData
-                                        }
-                                    ]
-                                };
-                            }
-                        });
-                    }
-                }
-                // done 처리
-                else if (data.type === "done") {
                     // 서버 데이터 동기화
                     queryClient.invalidateQueries({queryKey: ["session", sessionId]});
 
-                    // 상태 초기화
-                    assistantContent = "";
-                    isQuestion = false;
+                    // 콜백 호출 (로딩 해제)
+                    callbacks?.onTurnComplete?.();
+                }
+                // loading_start 처리 (메시지 전송 시)
+                else if (data.type === "loading_start") {
+                    console.log("[SSE] loading_start");
+                    callbacks?.onLoadingStart?.();
                 }
                 // error 처리
                 else if (data.type === "error") {
@@ -402,9 +338,8 @@ export const useSSEConnection = (sessionId: string | undefined) => {
             console.error("Session SSE error:", error);
         });
 
-        // 컴포넌트 unmount 시 연결 해제
         return () => {
             eventSource.close();
         };
-    }, [sessionId, queryClient]);
+    }, [sessionId, queryClient, callbacks]);
 };

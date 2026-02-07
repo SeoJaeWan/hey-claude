@@ -6,7 +6,7 @@ import ChatInput from "../../components/chat/input";
 import {getProviderModels, DEFAULT_PROVIDER, DEFAULT_CLAUDE_MODEL, DEFAULT_QUICK_CHAT_MODEL} from "../../data/models";
 import {useCreateSession} from "../../hooks/apis/queries/session";
 import {useProjectPath} from "../../hooks/apis/queries/project";
-import {useSendMessageStream} from "../../hooks/apis/queries/message";
+import {useSendMessage} from "../../hooks/apis/queries/message";
 import {useTranslation} from "../../contexts/language";
 
 type SessionType = "claude-code" | "quick-chat";
@@ -24,7 +24,7 @@ const NewSessionPage = () => {
     // API 훅
     const {data: projectPath = ""} = useProjectPath();
     const createSessionMutation = useCreateSession();
-    const {sendMessage} = useSendMessageStream();
+    const {sendMessage} = useSendMessage();
 
     // 드래그 앤 드롭 이미지 상태
     const [images, setImages] = useState<{id: string; src: string; file: File}[]>([]);

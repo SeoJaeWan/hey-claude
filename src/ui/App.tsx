@@ -3,7 +3,6 @@ import {BrowserRouter, Routes, Route} from "react-router-dom";
 import MainLayout from "./layouts/mainLayout";
 import NewSessionPage from "./pages/newSession";
 import ChatPage from "./pages/chat";
-import PtyChatPage from "./pages/ptyChat";
 import SettingsPage from "./pages/settings";
 import {useSettingsQuery} from "./hooks/apis/queries/settings";
 import {useLanguage} from "./contexts/language";
@@ -25,7 +24,6 @@ const App = () => {
                 <Route element={<MainLayout />}>
                     <Route path="/" element={<NewSessionPage />} />
                     <Route path="/chat/:sessionId" element={<ChatPage />} />
-                    <Route path="/pty/:sessionId" element={<PtyChatPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                 </Route>
             </Routes>

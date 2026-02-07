@@ -4,8 +4,68 @@ import { randomUUID } from "crypto";
 import { compressToolUsage } from "../services/compression.js";
 import sseManager from "../services/sseManager.js";
 import { buildMessageFromToolUse } from "../services/messageBuilder.js";
+import { getLastAssistantText } from "../services/transcriptParser.js";
+import sessionStatusManager from "../services/sessionStatusManager.js";
+import { homedir } from "os";
+import { join } from "path";
+import { existsSync } from "fs";
 
 const router: RouterType = Router();
+
+/**
+ * Claude transcript 파일 경로 구성
+ * Claude는 ~/.claude/projects/{project-hash}/{session-id}.jsonl 에 transcript 저장
+ * project-hash: 프로젝트 경로에서 : → -, / 또는 \ → - 로 변환
+ */
+const findTranscriptPath = (claudeSessionId: string, projectPath?: string): string | null => {
+    if (!projectPath) return null;
+
+    // 프로젝트 경로를 Claude의 해시 형식으로 변환
+    // C:\Users\sjw73\Desktop\dev\hey-claude → C--Users-sjw73-Desktop-dev-hey-claude
+    const projectHash = projectPath.replace(/:/g, '-').replace(/[/\\]/g, '-');
+    const transcriptPath = join(homedir(), '.claude', 'projects', projectHash, `${claudeSessionId}.jsonl`);
+
+    if (existsSync(transcriptPath)) {
+        console.log(`[HOOKS] Found transcript at: ${transcriptPath}`);
+        return transcriptPath;
+    }
+
+    console.log(`[HOOKS] Transcript not found at: ${transcriptPath}`);
+    return null;
+};
+
+/**
+ * Claude 세션 ID → 내부 세션 ID 변환
+ * 1. claude_session_id로 직접 조회
+ * 2. 없으면 현재 streaming 상태이면서 claude_session_id가 NULL인 세션에 연결
+ */
+const resolveInternalSession = (claudeSessionId: string): { id: string } | undefined => {
+    const db = getDatabase();
+
+    // 1차: claude_session_id로 직접 조회
+    const direct = db.prepare("SELECT id FROM sessions WHERE claude_session_id = ?").get(claudeSessionId) as { id: string } | undefined;
+    if (direct) return direct;
+
+    // 2차: streaming 상태이면서 claude_session_id가 NULL인 최신 세션 찾기
+    const unlinked = db.prepare(`
+        SELECT id FROM sessions
+        WHERE claude_session_id IS NULL
+          AND type = 'claude-code'
+          AND status = 'active'
+        ORDER BY created_at DESC
+        LIMIT 1
+    `).get() as { id: string } | undefined;
+
+    if (unlinked) {
+        // claude_session_id 연결
+        db.prepare("UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?")
+            .run(claudeSessionId, new Date().toISOString(), unlinked.id);
+        console.log(`[HOOKS] Linked claude_session_id ${claudeSessionId} → internal ${unlinked.id}`);
+        return unlinked;
+    }
+
+    return undefined;
+};
 
 // POST /api/hooks/session - SessionStart Hook
 interface SessionHookRequest {
@@ -103,9 +163,8 @@ router.post("/tool-use", async (req, res) => {
 
         const db = getDatabase();
 
-        // 세션이 존재하는지 확인
-        const session = db.prepare("SELECT id FROM sessions WHERE claude_session_id = ?").get(claudeSessionId);
-
+        // 세션 조회 (자동 매핑 포함)
+        let session = resolveInternalSession(claudeSessionId);
         let internalSessionId: string;
 
         if (!session) {
@@ -118,7 +177,7 @@ router.post("/tool-use", async (req, res) => {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `).run(internalSessionId, "claude-code", claudeSessionId, cwd, "terminal", "active", now, now);
         } else {
-            internalSessionId = (session as { id: string }).id;
+            internalSessionId = session.id;
         }
 
         // PreToolUse: AskUserQuestion 감지 시 SSE로 프론트엔드에 전달
@@ -233,29 +292,93 @@ router.post("/tool-use", async (req, res) => {
     }
 });
 
-// POST /api/hooks/stop - Stop hook (수집)
+// POST /api/hooks/stop - Stop hook (transcript 파싱 + assistant 메시지 저장)
 router.post("/stop", async (req, res) => {
     try {
-        const { session_id } = req.body;
+        console.log("[HOOKS] Stop received:", { sessionId: req.body.sessionId || req.body.session_id });
+        const { sessionId, session_id, projectPath, transcript_path } = req.body;
+        const claudeSessionId = sessionId || session_id;
 
-        if (!session_id) {
+        if (!claudeSessionId) {
             return res.json({ status: "ok" });
         }
 
         const db = getDatabase();
+        const now = new Date().toISOString();
 
-        // 세션 상태를 'completed'로 변경
+        // 내부 세션 ID 조회 (자동 매핑 포함)
+        const session = resolveInternalSession(claudeSessionId);
+
+        if (!session) {
+            console.log(`[HOOKS] Stop: No session found for claude_session_id ${claudeSessionId}`);
+            return res.json({ status: "ok" });
+        }
+
+        const internalSessionId = session.id;
+
+        // transcript_path 확인 (없으면 자동 탐색)
+        const resolvedTranscriptPath = transcript_path || findTranscriptPath(claudeSessionId, projectPath || req.body.cwd);
+
+        // transcript에서 마지막 assistant 메시지 추출
+        if (resolvedTranscriptPath) {
+            try {
+                const assistantText = getLastAssistantText(resolvedTranscriptPath);
+
+                if (assistantText) {
+                    // DB에 assistant 메시지 저장
+                    const assistantMessageId = randomUUID();
+                    db.prepare(`
+                        INSERT INTO messages (id, session_id, role, content, timestamp)
+                        VALUES (?, ?, ?, ?, ?)
+                    `).run(assistantMessageId, internalSessionId, "assistant", assistantText, now);
+
+                    console.log(`[HOOKS] Stop: Assistant message saved: ${assistantMessageId} (${assistantText.length} chars)`);
+
+                    // SSE로 assistant_message 이벤트 broadcast
+                    sseManager.broadcastToSession(internalSessionId, {
+                        type: "assistant_message",
+                        sessionId: internalSessionId,
+                        message: {
+                            id: assistantMessageId,
+                            sessionId: internalSessionId,
+                            role: "assistant",
+                            content: assistantText,
+                            createdAt: now
+                        }
+                    });
+
+                    console.log(`[HOOKS] Stop: SSE broadcast assistant_message for session ${internalSessionId}`);
+                } else {
+                    console.log(`[HOOKS] Stop: No assistant text found in transcript`);
+                }
+            } catch (error) {
+                console.error(`[HOOKS] Stop: Failed to parse transcript:`, error);
+            }
+        } else {
+            console.log(`[HOOKS] Stop: No transcript_path found (provided: ${transcript_path}, auto-detect failed)`);
+        }
+
+        // SSE로 turn_complete 이벤트 broadcast (프론트엔드 로딩 해제)
+        sseManager.broadcastToSession(internalSessionId, {
+            type: "turn_complete",
+            sessionId: internalSessionId
+        });
+
+        // 세션 상태를 idle로 변경
+        sessionStatusManager.setStatus(internalSessionId, "idle");
+
+        // 세션 updated_at 갱신
         db.prepare(`
             UPDATE sessions
-            SET status = 'completed', updated_at = ?
-            WHERE claude_session_id = ?
-        `).run(new Date().toISOString(), session_id);
+            SET updated_at = ?
+            WHERE id = ?
+        `).run(now, internalSessionId);
 
-        console.log(`Session stopped: ${session_id}`);
+        console.log(`[HOOKS] Stop: Session ${internalSessionId} turn completed`);
 
         res.json({ status: "ok" });
     } catch (error) {
-        console.error("Stop hook error:", error);
+        console.error("[HOOKS] Stop hook error:", error);
         res.json({ status: "error" });
     }
 });

@@ -11,7 +11,7 @@
 import * as pty from "node-pty";
 import type { IPty } from "node-pty";
 import { EventEmitter } from "events";
-import { execSync, spawn } from "child_process";
+import { execSync } from "child_process";
 
 // Claude 실행 파일 경로 찾기 (Windows 환경 대응)
 let claudePath: string | null = null;
@@ -38,10 +38,6 @@ export interface ClaudeProcess {
 
 // 청크 콜백 타입 (TUI 출력)
 export type OutputCallback = (data: string) => void;
-
-// stream-json 청크 콜백 타입
-export type ChunkCallback = (chunk: any) => void;
-
 
 // 유휴 타임아웃 (5분)
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -101,14 +97,14 @@ class ClaudeProcessManager {
         // 새 PTY 프로세스 생성
         console.log(`[PTY MANAGER] Creating new PTY process for session ${sessionId}`);
 
-        // 인터랙티브 모드 - TUI 출력 그대로 전달
-        // --session-id: 서버가 세션 ID 관리
-        // --resume: 기존 세션 재개
+        // 인터랙티브 모드 - TUI로 실행
+        // --resume: 기존 Claude 세션 재개
+        // 새 세션: args 없이 실행 (Claude가 새 세션 생성)
         let args: string[];
         if (claudeSessionId) {
             args = ['--resume', claudeSessionId];
         } else {
-            args = ['--session-id', sessionId];
+            args = [];
         }
 
         console.log(`[PTY MANAGER] Spawning claude with args:`, args);
@@ -140,6 +136,12 @@ class ClaudeProcessManager {
         // PTY 데이터 이벤트 (TUI 출력)
         ptyProcess.onData((data: string) => {
             claudeProcess.lastActivityAt = new Date();
+            // 디버그: PTY 출력 로그 (ANSI 이스케이프 제거)
+            const cleanData = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').trim();
+            if (cleanData.length > 0) {
+                const preview = cleanData.substring(0, 200);
+                console.log(`[PTY OUTPUT] [${sessionId.substring(0, 8)}] ${preview}`);
+            }
             claudeProcess.eventEmitter.emit('data', data);
         });
 
@@ -166,6 +168,7 @@ class ClaudeProcessManager {
 
         cp.lastActivityAt = new Date();
         cp.state = 'processing';
+        console.log(`[PTY WRITE] [${sessionId.substring(0, 8)}] Writing ${data.length} chars: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n').substring(0, 100)}"`);
         cp.pty.write(data);
         return true;
     }
@@ -281,109 +284,24 @@ class ClaudeProcessManager {
         return this.processes.has(sessionId);
     }
 
-    // ============================================================
-    // Stream-JSON 모드 메서드 (chat.ts 호환용)
-    // PTY 전환 완료 후 제거 예정
-    // ============================================================
-
     /**
-     * stream-json 모드로 메시지 전송 (chat.ts 호환용)
-     * 별도 프로세스로 실행하여 JSON 출력 파싱
+     * AskUserQuestion 답변을 PTY stdin으로 전송
+     * 답변 텍스트 + Enter 전송
      */
-    async sendMessage(
-        sessionId: string,
-        text: string,
-        claudeSessionId?: string,
-        cwd?: string,
-        onChunk?: ChunkCallback
-    ): Promise<{ claudeSessionId?: string; response: string }> {
-        return new Promise((resolve, reject) => {
-            const args = [
-                '-p', text,
-                '--output-format', 'stream-json',
-                '--verbose'
-            ];
+    writeAnswer(sessionId: string, answer: string): boolean {
+        const cp = this.processes.get(sessionId);
+        if (!cp) {
+            console.log(`[PTY MANAGER] No process found for answer: session ${sessionId}`);
+            return false;
+        }
 
-            if (claudeSessionId) {
-                args.unshift('--resume', claudeSessionId);
-            }
+        cp.lastActivityAt = new Date();
+        cp.state = 'processing';
 
-            console.log(`[PROCESS MANAGER] Spawning stream-json process for session ${sessionId}`);
-            console.log(`[PROCESS MANAGER] Claude path: ${claudePath}`);
-            console.log(`[PROCESS MANAGER] Args (first 200 chars of prompt):`, [...args.slice(0, 1), args[1]?.substring(0, 200) + '...', ...args.slice(2)]);
-
-            const proc = spawn(claudePath!, args, {
-                cwd: cwd || process.cwd(),
-                stdio: ['pipe', 'pipe', 'pipe'],
-                shell: true,  // Windows에서 인자 처리를 위해 shell: true 사용
-                windowsHide: false
-            });
-
-            console.log(`[PROCESS MANAGER] Process spawned with PID: ${proc.pid}`);
-
-            let response = '';
-            let buffer = '';
-            let resolvedClaudeSessionId = claudeSessionId;
-            let chunkCount = 0;
-
-            proc.stdout?.setEncoding('utf8');
-            proc.stdout?.on('data', (data: string) => {
-                chunkCount++;
-                console.log(`[PROCESS MANAGER] stdout chunk #${chunkCount}, length: ${data.length}`);
-                buffer += data;
-
-                // JSONL 파싱
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-
-                    try {
-                        const parsed = JSON.parse(line);
-
-                        // Claude 세션 ID 추출
-                        if (parsed.session_id) {
-                            resolvedClaudeSessionId = parsed.session_id;
-                        }
-
-                        // 콜백 호출
-                        if (onChunk) {
-                            onChunk(parsed);
-                        }
-
-                        // 응답 텍스트 누적
-                        if (parsed.type === 'assistant' && parsed.message?.content) {
-                            for (const block of parsed.message.content) {
-                                if (block.type === 'text' && block.text) {
-                                    response += block.text;
-                                }
-                            }
-                        }
-                    } catch {
-                        // JSON 파싱 실패 무시
-                    }
-                }
-            });
-
-            proc.stderr?.setEncoding('utf8');
-            proc.stderr?.on('data', (data: string) => {
-                console.log(`[PROCESS MANAGER] stderr:`, data);
-            });
-
-            proc.on('error', (error) => {
-                reject(error);
-            });
-
-            proc.on('close', (code) => {
-                console.log(`[PROCESS MANAGER] Process closed with code: ${code}, total chunks: ${chunkCount}, response length: ${response.length}`);
-                if (code === 0 || code === null) {
-                    resolve({ claudeSessionId: resolvedClaudeSessionId, response });
-                } else {
-                    reject(new Error(`Process exited with code ${code}`));
-                }
-            });
-        });
+        // 답변 텍스트 전송 후 Enter
+        cp.pty.write(answer + '\r');
+        console.log(`[PTY MANAGER] Answer sent to PTY stdin for session ${sessionId}`);
+        return true;
     }
 }
 

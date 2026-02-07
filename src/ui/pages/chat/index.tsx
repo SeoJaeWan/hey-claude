@@ -1,11 +1,11 @@
-import {useState, useEffect} from "react";
+import {useState, useEffect, useMemo} from "react";
 import {useParams, useOutletContext} from "react-router-dom";
 import PageHeader from "../../components/commons/pageHeader";
 import MessageList from "../../components/chat/messageList";
 import ChatInput from "../../components/chat/input";
 import {DEFAULT_CLAUDE_MODEL, DEFAULT_PROVIDER} from "../../data/models";
 import {useSessionQuery, useSSEConnection} from "../../hooks/apis/queries/session";
-import {useMessagesQuery, useSendMessageStream, useSubmitQuestionAnswer} from "../../hooks/apis/queries/message";
+import {useMessagesQuery, useSendMessage, useSubmitQuestionAnswer} from "../../hooks/apis/queries/message";
 import type {QuestionAnswer} from "../../types";
 import {useTranslation} from "../../contexts/language";
 
@@ -18,17 +18,24 @@ const ChatPage = () => {
     const {data: session} = useSessionQuery(sessionId);
     const sessionName = session?.name || `Session ${sessionId}`;
 
-    // SSE 연결 (메시지 스트리밍 수신)
-    useSSEConnection(sessionId);
-
     // 메시지 목록 조회
     const {data: messages} = useMessagesQuery(sessionId);
 
     // 메시지 전송
-    const {isSending, sendMessage} = useSendMessageStream();
+    const {isSending, sendMessage, stopSending} = useSendMessage();
 
     // 답변 제출
-    const {submitAnswer, isSubmitting} = useSubmitQuestionAnswer();
+    const {submitAnswer, isSubmitting, stopSubmitting} = useSubmitQuestionAnswer();
+
+    // SSE 연결 (Hooks 이벤트 수신) - turn_complete에서 로딩 해제
+    const sseCallbacks = useMemo(() => ({
+        onTurnComplete: () => {
+            stopSending();
+            stopSubmitting();
+        }
+    }), [stopSending, stopSubmitting]);
+
+    useSSEConnection(sessionId, sseCallbacks);
 
     // 스트리밍 상태 확인 (백그라운드 작업 포함)
     const isStreaming =
@@ -75,7 +82,6 @@ const ChatPage = () => {
     const handleDragLeave = (e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        // 자식 요소로 이동할 때는 무시
         if (e.currentTarget.contains(e.relatedTarget as Node)) return;
         setIsDragging(false);
     };
@@ -94,13 +100,8 @@ const ChatPage = () => {
     const handleSend = async (content: string, inputImages?: File[]) => {
         if (!sessionId) return;
 
-        // inputImages는 ChatInput에서 전달받은 파일들 (클립보드, 파일선택)
-        // images는 ChatPage에서 관리하는 드래그앤드롭 이미지들
         const allImages = [...(inputImages || []), ...images.map(img => img.file)];
 
-        // 메시지 전송 (SSE 스트리밍) - 이미지 포함
-        // Optimistic update로 메시지가 즉시 표시됨
-        // isSending 상태는 useSendMessageStream 훅에서 자동 관리됨
         await sendMessage(sessionId, content, allImages.length > 0 ? allImages : undefined);
 
         // 전송 후 이미지 정리
@@ -124,7 +125,7 @@ const ChatPage = () => {
             {/* Header with Session Name */}
             <PageHeader title={sessionName} onMenuClick={onMenuClick} />
 
-            {/* Messages - Optimistic update로 메시지가 React Query 캐시에서 자동 관리됨 */}
+            {/* Messages */}
             <MessageList
                 messages={messages}
                 isStreaming={isStreaming}
@@ -132,7 +133,7 @@ const ChatPage = () => {
                 onQuestionSubmit={handleQuestionSubmit}
             />
 
-            {/* Input - 임시로 claude-code 모드로 고정 */}
+            {/* Input */}
             <ChatInput
                 mode="claude-code"
                 sessionId={sessionId}

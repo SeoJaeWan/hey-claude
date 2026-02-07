@@ -3,7 +3,6 @@
  */
 
 import fs from "fs";
-import path from "path";
 
 export interface TranscriptEntry {
     type: "user" | "assistant" | "system" | "progress" | "file-history-snapshot";

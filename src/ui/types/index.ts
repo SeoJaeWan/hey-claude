@@ -175,32 +175,25 @@ export interface APIError {
     };
 }
 
-// PTY 관련 타입
-export interface PtySession {
+// SSE 이벤트 타입
+export interface AssistantMessageEvent {
+    type: "assistant_message";
     sessionId: string;
-    claudeSessionId?: string;
-    cwd: string;
-    createdAt: string;
+    message: {
+        id: string;
+        sessionId: string;
+        role: "assistant";
+        content: string;
+        createdAt: string;
+    };
 }
 
-export type PtyState = "idle" | "running" | "exited";
-
-export interface PtyStatus {
-    exists: boolean;
-    state: PtyState;
-    sessionId?: string;
-    claudeSessionId?: string;
-    lastActivityAt?: string;
+export interface TurnCompleteEvent {
+    type: "turn_complete";
+    sessionId: string;
 }
 
-export interface PtyOutputEvent {
-    type: "output";
-    data: string;
+export interface LoadingStartEvent {
+    type: "loading_start";
+    sessionId: string;
 }
-
-export interface PtyExitEvent {
-    type: "exit";
-    code: number;
-}
-
-export type PtyEvent = PtyOutputEvent | PtyExitEvent;
