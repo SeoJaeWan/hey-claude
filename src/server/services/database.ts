@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { join } from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync } from "fs";
 
 let db: Database.Database | null = null;
 
@@ -20,6 +20,9 @@ export const initDatabase = (projectPath: string): Database.Database => {
 
     // 테이블 생성
     createTables(db);
+
+    // 기존 snippets.json 마이그레이션
+    migrateSnippetsFromJson(db, projectPath);
 
     return db;
 };
@@ -51,6 +54,8 @@ const createTables = (database: Database.Database): void => {
             ON sessions(project_path);
         CREATE INDEX IF NOT EXISTS idx_sessions_updated
             ON sessions(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_sessions_claude_session
+            ON sessions(claude_session_id);
     `);
 
     // messages 테이블
@@ -128,7 +133,27 @@ const createTables = (database: Database.Database): void => {
         );
     `);
 
-    // commands 테이블 (명령어 캐시)
+    // snippets 테이블
+    database.exec(`
+        CREATE TABLE IF NOT EXISTS snippets (
+            id TEXT PRIMARY KEY,
+            project_path TEXT NOT NULL,
+            trigger TEXT NOT NULL,
+            name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            category TEXT DEFAULT 'general',
+            usage_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_snippets_project
+            ON snippets(project_path);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_snippets_trigger
+            ON snippets(project_path, trigger);
+    `);
+
+    // commands 테이블
     database.exec(`
         CREATE TABLE IF NOT EXISTS commands (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,13 +163,91 @@ const createTables = (database: Database.Database): void => {
             description TEXT,
             source TEXT NOT NULL,
             allowed_tools TEXT,
-            updated_at TEXT NOT NULL,
-            UNIQUE(project_path, name)
+            updated_at TEXT NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_commands_project
             ON commands(project_path);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_commands_name
+            ON commands(project_path, name);
     `);
+};
+
+const migrateSnippetsFromJson = (database: Database.Database, projectPath: string): void => {
+    const snippetsJsonPath = join(projectPath, ".hey-claude", "snippets.json");
+    const snippetsBackupPath = join(projectPath, ".hey-claude", ".snippets.json.bak");
+
+    // snippets.json 파일이 없으면 스킵
+    if (!existsSync(snippetsJsonPath)) {
+        return;
+    }
+
+    try {
+        // 이미 마이그레이션된 적이 있는지 확인 (DB에 레코드가 있는지)
+        const existingCount = database.prepare("SELECT COUNT(*) as count FROM snippets WHERE project_path = ?").get(projectPath) as { count: number };
+
+        if (existingCount.count > 0) {
+            // 이미 마이그레이션됨 - 파일만 백업으로 이동
+            if (!existsSync(snippetsBackupPath)) {
+                renameSync(snippetsJsonPath, snippetsBackupPath);
+                console.log("[DATABASE] Existing snippets.json backed up to .snippets.json.bak");
+            }
+            return;
+        }
+
+        // JSON 파일 읽기
+        const fileContent = readFileSync(snippetsJsonPath, "utf-8");
+        const data = JSON.parse(fileContent) as { version?: number; snippets?: Array<{
+            id: string;
+            trigger: string;
+            name: string;
+            content: string;
+            category?: string;
+            usageCount?: number;
+            createdAt: string;
+            updatedAt: string;
+        }> };
+
+        const snippets = data.snippets || [];
+
+        if (snippets.length === 0) {
+            // 빈 파일이면 백업만 하고 종료
+            renameSync(snippetsJsonPath, snippetsBackupPath);
+            console.log("[DATABASE] Empty snippets.json backed up");
+            return;
+        }
+
+        // DB에 삽입
+        const insertStmt = database.prepare(`
+            INSERT INTO snippets (id, project_path, trigger, name, content, category, usage_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const insertMany = database.transaction((snippetsToInsert: typeof snippets) => {
+            for (const snippet of snippetsToInsert) {
+                insertStmt.run(
+                    snippet.id,
+                    projectPath,
+                    snippet.trigger,
+                    snippet.name,
+                    snippet.content,
+                    snippet.category || "general",
+                    snippet.usageCount || 0,
+                    snippet.createdAt,
+                    snippet.updatedAt
+                );
+            }
+        });
+
+        insertMany(snippets);
+
+        // 마이그레이션 성공 - 파일을 백업으로 이동
+        renameSync(snippetsJsonPath, snippetsBackupPath);
+        console.log(`[DATABASE] Migrated ${snippets.length} snippets from snippets.json to database`);
+    } catch (error) {
+        console.error("[DATABASE] Failed to migrate snippets.json:", error);
+        // 마이그레이션 실패 시 원본 파일 유지
+    }
 };
 
 export const closeDatabase = (): void => {

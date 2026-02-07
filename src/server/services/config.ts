@@ -5,6 +5,9 @@
 import fs from "fs/promises";
 import path from "path";
 
+// Memory cache for config (per projectPath)
+const configCache = new Map<string, Config>();
+
 export interface Config {
     version: number;
     server: {
@@ -66,8 +69,16 @@ export const getConfigDirPath = (projectPath: string): string => {
 
 /**
  * Config 파일 읽기 (없으면 기본값으로 생성)
+ * 메모리 캐시를 사용하여 반복적인 파일 읽기 방지
  */
 export const readConfig = async (projectPath: string): Promise<Config> => {
+    // 1. 캐시 확인
+    const cached = configCache.get(projectPath);
+    if (cached) {
+        return cached;
+    }
+
+    // 2. 파일에서 읽기
     const configPath = getConfigPath(projectPath);
 
     try {
@@ -75,7 +86,7 @@ export const readConfig = async (projectPath: string): Promise<Config> => {
         const config = JSON.parse(data) as Config;
 
         // 기본값과 병합 (누락된 필드 방지)
-        return {
+        const mergedConfig = {
             ...DEFAULT_CONFIG,
             ...config,
             server: { ...DEFAULT_CONFIG.server, ...config.server },
@@ -83,6 +94,10 @@ export const readConfig = async (projectPath: string): Promise<Config> => {
             multiAI: { ...DEFAULT_CONFIG.multiAI, ...config.multiAI },
             compression: { ...DEFAULT_CONFIG.compression, ...config.compression },
         };
+
+        // 3. 캐시에 저장
+        configCache.set(projectPath, mergedConfig);
+        return mergedConfig;
     } catch (error) {
         // 파일이 없으면 기본값으로 생성
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -95,6 +110,7 @@ export const readConfig = async (projectPath: string): Promise<Config> => {
 
 /**
  * Config 파일 쓰기
+ * 파일 쓰기 후 캐시 동시 업데이트
  */
 export const writeConfig = async (
     projectPath: string,
@@ -108,6 +124,9 @@ export const writeConfig = async (
 
     // Config 파일 쓰기
     await fs.writeFile(configPath, JSON.stringify(config, null, 4), "utf-8");
+
+    // 캐시 동시 업데이트
+    configCache.set(projectPath, config);
 };
 
 /**

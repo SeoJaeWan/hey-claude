@@ -1,7 +1,6 @@
 import { Router, type Router as RouterType } from "express";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join } from "path";
 import { randomUUID } from "crypto";
+import { getDatabase } from "../services/database.js";
 
 const router: RouterType = Router();
 
@@ -16,46 +15,28 @@ interface Snippet {
     updatedAt: string;
 }
 
-interface SnippetsFile {
-    version: number;
-    snippets: Snippet[];
+interface SnippetRow {
+    id: string;
+    project_path: string;
+    trigger: string;
+    name: string;
+    content: string;
+    category: string;
+    usage_count: number;
+    created_at: string;
+    updated_at: string;
 }
 
-const getSnippetsFilePath = (projectPath: string): string => {
-    return join(projectPath, ".hey-claude", "snippets.json");
-};
-
-const readSnippets = (projectPath: string): Snippet[] => {
-    const filePath = getSnippetsFilePath(projectPath);
-
-    if (!existsSync(filePath)) {
-        // .hey-claude 폴더 생성
-        const heyClaudePath = join(projectPath, ".hey-claude");
-        if (!existsSync(heyClaudePath)) {
-            mkdirSync(heyClaudePath, { recursive: true });
-        }
-
-        // 기본 스니펫 파일 생성
-        const defaultData: SnippetsFile = {
-            version: 1,
-            snippets: [],
-        };
-        writeFileSync(filePath, JSON.stringify(defaultData, null, 2), "utf-8");
-        return [];
-    }
-
-    const data: SnippetsFile = JSON.parse(readFileSync(filePath, "utf-8"));
-    return data.snippets || [];
-};
-
-const writeSnippets = (projectPath: string, snippets: Snippet[]): void => {
-    const filePath = getSnippetsFilePath(projectPath);
-    const data: SnippetsFile = {
-        version: 1,
-        snippets,
-    };
-    writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-};
+const rowToSnippet = (row: SnippetRow): Snippet => ({
+    id: row.id,
+    trigger: row.trigger,
+    name: row.name,
+    content: row.content,
+    category: row.category,
+    usageCount: row.usage_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+});
 
 // GET /api/snippets - 스니펫 목록 조회
 router.get("/", async (req, res) => {
@@ -71,7 +52,9 @@ router.get("/", async (req, res) => {
             });
         }
 
-        const snippets = readSnippets(projectPath as string);
+        const db = getDatabase();
+        const rows = db.prepare("SELECT * FROM snippets WHERE project_path = ? ORDER BY created_at DESC").all(projectPath as string) as SnippetRow[];
+        const snippets = rows.map(rowToSnippet);
 
         res.json({
             data: snippets,
@@ -101,10 +84,11 @@ router.post("/", async (req, res) => {
             });
         }
 
-        const snippets = readSnippets(projectPath);
+        const db = getDatabase();
 
         // 중복 트리거 확인
-        if (snippets.some((s) => s.trigger === trigger)) {
+        const existing = db.prepare("SELECT id FROM snippets WHERE project_path = ? AND trigger = ?").get(projectPath, trigger);
+        if (existing) {
             return res.status(400).json({
                 error: {
                     code: "DUPLICATE_TRIGGER",
@@ -114,8 +98,15 @@ router.post("/", async (req, res) => {
         }
 
         const now = new Date().toISOString();
+        const id = randomUUID();
+
+        db.prepare(`
+            INSERT INTO snippets (id, project_path, trigger, name, content, category, usage_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, projectPath, trigger, name, content, category || "general", 0, now, now);
+
         const newSnippet: Snippet = {
-            id: randomUUID(),
+            id,
             trigger,
             name,
             content,
@@ -124,9 +115,6 @@ router.post("/", async (req, res) => {
             createdAt: now,
             updatedAt: now,
         };
-
-        snippets.push(newSnippet);
-        writeSnippets(projectPath, snippets);
 
         res.status(201).json({
             data: newSnippet,
@@ -157,10 +145,12 @@ router.patch("/:id", async (req, res) => {
             });
         }
 
-        const snippets = readSnippets(projectPath);
-        const index = snippets.findIndex((s) => s.id === id);
+        const db = getDatabase();
 
-        if (index === -1) {
+        // 기존 스니펫 조회
+        const existingRow = db.prepare("SELECT * FROM snippets WHERE id = ? AND project_path = ?").get(id, projectPath) as SnippetRow | undefined;
+
+        if (!existingRow) {
             return res.status(404).json({
                 error: {
                     code: "SNIPPET_NOT_FOUND",
@@ -170,8 +160,9 @@ router.patch("/:id", async (req, res) => {
         }
 
         // 트리거 변경 시 중복 확인
-        if (trigger && trigger !== snippets[index].trigger) {
-            if (snippets.some((s) => s.trigger === trigger)) {
+        if (trigger && trigger !== existingRow.trigger) {
+            const duplicate = db.prepare("SELECT id FROM snippets WHERE project_path = ? AND trigger = ? AND id != ?").get(projectPath, trigger, id);
+            if (duplicate) {
                 return res.status(400).json({
                     error: {
                         code: "DUPLICATE_TRIGGER",
@@ -181,20 +172,32 @@ router.patch("/:id", async (req, res) => {
             }
         }
 
+        const now = new Date().toISOString();
+        const updatedTrigger = trigger || existingRow.trigger;
+        const updatedName = name || existingRow.name;
+        const updatedContent = content !== undefined ? content : existingRow.content;
+        const updatedCategory = category || existingRow.category;
+
         // 업데이트
-        snippets[index] = {
-            ...snippets[index],
-            trigger: trigger || snippets[index].trigger,
-            name: name || snippets[index].name,
-            content: content !== undefined ? content : snippets[index].content,
-            category: category || snippets[index].category,
-            updatedAt: new Date().toISOString(),
+        db.prepare(`
+            UPDATE snippets
+            SET trigger = ?, name = ?, content = ?, category = ?, updated_at = ?
+            WHERE id = ? AND project_path = ?
+        `).run(updatedTrigger, updatedName, updatedContent, updatedCategory, now, id, projectPath);
+
+        const updatedSnippet: Snippet = {
+            id: existingRow.id,
+            trigger: updatedTrigger,
+            name: updatedName,
+            content: updatedContent,
+            category: updatedCategory,
+            usageCount: existingRow.usage_count,
+            createdAt: existingRow.created_at,
+            updatedAt: now,
         };
 
-        writeSnippets(projectPath, snippets);
-
         res.json({
-            data: snippets[index],
+            data: updatedSnippet,
         });
     } catch (error) {
         console.error("Snippet update failed:", error);
@@ -222,10 +225,12 @@ router.delete("/:id", async (req, res) => {
             });
         }
 
-        const snippets = readSnippets(projectPath as string);
-        const index = snippets.findIndex((s) => s.id === id);
+        const db = getDatabase();
 
-        if (index === -1) {
+        // 존재 확인
+        const existing = db.prepare("SELECT id FROM snippets WHERE id = ? AND project_path = ?").get(id, projectPath as string);
+
+        if (!existing) {
             return res.status(404).json({
                 error: {
                     code: "SNIPPET_NOT_FOUND",
@@ -234,8 +239,8 @@ router.delete("/:id", async (req, res) => {
             });
         }
 
-        snippets.splice(index, 1);
-        writeSnippets(projectPath as string, snippets);
+        // 삭제
+        db.prepare("DELETE FROM snippets WHERE id = ? AND project_path = ?").run(id, projectPath as string);
 
         res.json({
             data: { deleted: true },
