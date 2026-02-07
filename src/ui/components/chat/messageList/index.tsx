@@ -73,22 +73,38 @@ const MessageList = ({
             </div>
           </div>
         ) : (
-          messages.map((message, index) => {
-            // 마지막 assistant 메시지에만 isStreaming 전달
-            const isLastAssistant =
-              index === messages.length - 1 && message.role === "assistant";
-            const showStreaming = isLastAssistant && isStreaming;
+          <>
+            {messages.map((message, index) => {
+              // 마지막 assistant 메시지에만 isStreaming 전달
+              const isLastAssistant =
+                index === messages.length - 1 && message.role === "assistant";
+              const showStreaming = isLastAssistant && isStreaming;
 
-            return (
-              <Message
-                key={message.id}
-                message={message}
-                isStreaming={showStreaming}
-                isSubmitting={isSubmitting}
-                onQuestionSubmit={onQuestionSubmit}
-              />
-            );
-          })
+              return (
+                <Message
+                  key={message.id}
+                  message={message}
+                  isStreaming={showStreaming}
+                  isSubmitting={isSubmitting}
+                  onQuestionSubmit={onQuestionSubmit}
+                />
+              );
+            })}
+            {/* thinking indicator: assistant 응답 대기 중 */}
+            {isStreaming && messages.length > 0 && messages[messages.length - 1].role !== "assistant" && (
+              <div className="flex justify-start">
+                <div className="max-w-[85%]">
+                  <div className="px-4 py-3 rounded-2xl bg-bubble-assistant text-text-primary border border-border-default">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:0ms]" />
+                      <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:150ms]" />
+                      <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:300ms]" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

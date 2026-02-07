@@ -16,6 +16,7 @@ interface SSEClient {
 class SSEManager {
     private globalClients: Set<SSEClient> = new Set();
     private sessionClients: Map<string, Set<SSEClient>> = new Map();
+    private onSessionEmptyCallback: ((sessionId: string) => void) | null = null;
 
     /**
      * Add global SSE client (receives all session updates)
@@ -70,8 +71,19 @@ class SSEManager {
             // Cleanup empty sets
             if (clients.size === 0) {
                 this.sessionClients.delete(sessionId);
+                // 세션 클라이언트가 0이 되면 콜백 호출
+                if (this.onSessionEmptyCallback) {
+                    this.onSessionEmptyCallback(sessionId);
+                }
             }
         }
+    }
+
+    /**
+     * 세션 클라이언트가 0이 될 때 호출되는 콜백 등록
+     */
+    public setOnSessionEmpty(callback: (sessionId: string) => void): void {
+        this.onSessionEmptyCallback = callback;
     }
 
     /**
@@ -94,10 +106,29 @@ class SSEManager {
 
     /**
      * Broadcast to session-specific clients
+     * 클라이언트가 없으면 주요 이벤트를 Global SSE로 포워딩 (캐시 무효화용)
      */
     public broadcastToSession(sessionId: string, data: SessionStatusData | any): void {
         const clients = this.sessionClients.get(sessionId);
         if (!clients || clients.size === 0) {
+            // 주요 이벤트를 Global SSE로 포워딩
+            const eventType = data?.type;
+            if (eventType === "assistant_message" || eventType === "tool_use_message" || eventType === "turn_complete") {
+                const notification = `data: ${JSON.stringify({
+                    type: "session_data_updated",
+                    sessionId,
+                    eventType
+                })}\n\n`;
+
+                for (const client of this.globalClients) {
+                    try {
+                        client.res.write(notification);
+                    } catch (error) {
+                        this.removeGlobalClient(client);
+                    }
+                }
+                console.log(`[SSE MANAGER] No session clients for ${sessionId}, forwarded ${eventType} to ${this.globalClients.size} global clients`);
+            }
             return;
         }
 

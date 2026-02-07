@@ -214,13 +214,27 @@ const startServer = async (
             sseManager.broadcastGlobal(data);
         });
 
-        // 3. Cleanup 핸들러 설정
+        // 3. SSE 세션 클라이언트가 0이 되면 idle PTY 종료 (10초 딜레이)
+        sseManager.setOnSessionEmpty((sessionId) => {
+            setTimeout(() => {
+                // 딜레이 후에도 클라이언트가 없고 idle이면 종료
+                const status = sessionStatusManager.getStatus(sessionId);
+                const isIdle = !status || status.status === "idle";
+
+                if (isIdle && claudeProcessManager.hasProcess(sessionId)) {
+                    console.log(`[CLEANUP] Terminating idle PTY for session ${sessionId} (no SSE clients)`);
+                    claudeProcessManager.terminateProcess(sessionId);
+                }
+            }, 10000);
+        });
+
+        // 4. Cleanup 핸들러 설정
         setupCleanup(projectPath);
 
-        // 4. 서버 시작
+        // 5. 서버 시작
         await startServer(projectPath, DEFAULT_PORT);
 
-        // 5. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
+        // 6. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
         refreshCommandsCache(projectPath);
     } catch (err) {
         console.error("Failed to start server:", err);

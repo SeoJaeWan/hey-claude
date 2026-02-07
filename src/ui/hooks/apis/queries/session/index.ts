@@ -149,8 +149,21 @@ export const useGlobalSSE = (projectPath?: string) => {
             try {
                 const parsed = JSON.parse(event.data);
 
-                // session_status 타입만 처리
-                if (parsed.type === "session_status") {
+                // session_data_updated: 다른 세션의 데이터가 변경됨 (세션 SSE 끊긴 동안)
+                if (parsed.type === "session_data_updated") {
+                    const {sessionId: updatedSessionId, eventType} = parsed;
+                    console.log("[Global SSE] session_data_updated:", {updatedSessionId, eventType});
+
+                    // 해당 세션의 캐시 무효화 → 돌아갔을 때 자동 refetch
+                    queryClient.invalidateQueries({queryKey: ["session", updatedSessionId]});
+
+                    // turn_complete이면 세션 목록도 갱신
+                    if (eventType === "turn_complete") {
+                        queryClient.invalidateQueries({queryKey: ["sessions"]});
+                    }
+                }
+                // session_status 타입 처리
+                else if (parsed.type === "session_status") {
                     const {sessionId, status, backgroundTasksCount} = parsed.data;
 
                     console.log("[Global SSE] Received session_status:", {sessionId, status, backgroundTasksCount});
@@ -323,6 +336,20 @@ export const useSSEConnection = (
                 else if (data.type === "loading_start") {
                     console.log("[SSE] loading_start");
                     callbacks?.onLoadingStart?.();
+                }
+                // session_status 처리 (SSE 재연결 시 초기 동기화)
+                else if (data.type === "session_status") {
+                    const {status, backgroundTasksCount} = data.data || data;
+                    console.log("[SSE] session_status:", status);
+
+                    queryClient.setQueryData(["session", sessionId], (old: any) => {
+                        if (!old) return old;
+                        return {
+                            ...old,
+                            streamStatus: status,
+                            backgroundTasksCount: backgroundTasksCount || 0
+                        };
+                    });
                 }
                 // error 처리
                 else if (data.type === "error") {

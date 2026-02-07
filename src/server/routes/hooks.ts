@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { compressToolUsage } from "../services/compression.js";
 import sseManager from "../services/sseManager.js";
 import { buildMessageFromToolUse } from "../services/messageBuilder.js";
-import { getLastAssistantText } from "../services/transcriptParser.js";
+import { getNewAssistantTexts } from "../services/transcriptParser.js";
 import sessionStatusManager from "../services/sessionStatusManager.js";
 import { homedir } from "os";
 import { join } from "path";
@@ -252,6 +252,40 @@ router.post("/tool-use", async (req, res) => {
 
             console.log(`[HOOKS] SSE broadcast: tool_use_message for session ${internalSessionId}`);
 
+            // transcript에서 중간 assistant 텍스트 캡처 (도구 사용 전 텍스트)
+            try {
+                const transcriptPath = findTranscriptPath(claudeSessionId, cwd);
+                if (transcriptPath) {
+                    const lastUuid = sessionStatusManager.getLastProcessedUuid(internalSessionId);
+                    const newTexts = getNewAssistantTexts(transcriptPath, lastUuid);
+
+                    for (const { uuid, text } of newTexts) {
+                        const assistantMsgId = randomUUID();
+                        db.prepare(`
+                            INSERT INTO messages (id, session_id, role, content, timestamp)
+                            VALUES (?, ?, ?, ?, ?)
+                        `).run(assistantMsgId, internalSessionId, "assistant", text, now);
+
+                        sseManager.broadcastToSession(internalSessionId, {
+                            type: "assistant_message",
+                            sessionId: internalSessionId,
+                            message: {
+                                id: assistantMsgId,
+                                sessionId: internalSessionId,
+                                role: "assistant",
+                                content: text,
+                                createdAt: now
+                            }
+                        });
+
+                        sessionStatusManager.setLastProcessedUuid(internalSessionId, uuid);
+                        console.log(`[HOOKS] Intermediate assistant text sent: ${text.substring(0, 80)} (uuid: ${uuid.substring(0, 8)})`);
+                    }
+                }
+            } catch (error) {
+                console.error("[HOOKS] Intermediate text extraction failed:", error);
+            }
+
             // 비동기로 압축 수행 (응답 지연 방지)
             compressToolUsage(cwd, {
                 toolName: tool_name,
@@ -319,37 +353,37 @@ router.post("/stop", async (req, res) => {
         // transcript_path 확인 (없으면 자동 탐색)
         const resolvedTranscriptPath = transcript_path || findTranscriptPath(claudeSessionId, projectPath || req.body.cwd);
 
-        // transcript에서 마지막 assistant 메시지 추출
+        // transcript에서 아직 보내지 않은 assistant 메시지 추출 (UUID 기반 중복 방지)
         if (resolvedTranscriptPath) {
             try {
-                const assistantText = getLastAssistantText(resolvedTranscriptPath);
+                const lastUuid = sessionStatusManager.getLastProcessedUuid(internalSessionId);
+                const newTexts = getNewAssistantTexts(resolvedTranscriptPath, lastUuid);
 
-                if (assistantText) {
-                    // DB에 assistant 메시지 저장
-                    const assistantMessageId = randomUUID();
-                    db.prepare(`
-                        INSERT INTO messages (id, session_id, role, content, timestamp)
-                        VALUES (?, ?, ?, ?, ?)
-                    `).run(assistantMessageId, internalSessionId, "assistant", assistantText, now);
+                if (newTexts.length > 0) {
+                    for (const { uuid, text } of newTexts) {
+                        const assistantMessageId = randomUUID();
+                        db.prepare(`
+                            INSERT INTO messages (id, session_id, role, content, timestamp)
+                            VALUES (?, ?, ?, ?, ?)
+                        `).run(assistantMessageId, internalSessionId, "assistant", text, now);
 
-                    console.log(`[HOOKS] Stop: Assistant message saved: ${assistantMessageId} (${assistantText.length} chars)`);
-
-                    // SSE로 assistant_message 이벤트 broadcast
-                    sseManager.broadcastToSession(internalSessionId, {
-                        type: "assistant_message",
-                        sessionId: internalSessionId,
-                        message: {
-                            id: assistantMessageId,
+                        sseManager.broadcastToSession(internalSessionId, {
+                            type: "assistant_message",
                             sessionId: internalSessionId,
-                            role: "assistant",
-                            content: assistantText,
-                            createdAt: now
-                        }
-                    });
+                            message: {
+                                id: assistantMessageId,
+                                sessionId: internalSessionId,
+                                role: "assistant",
+                                content: text,
+                                createdAt: now
+                            }
+                        });
 
-                    console.log(`[HOOKS] Stop: SSE broadcast assistant_message for session ${internalSessionId}`);
+                        sessionStatusManager.setLastProcessedUuid(internalSessionId, uuid);
+                        console.log(`[HOOKS] Stop: Assistant message saved: ${assistantMessageId} (${text.length} chars)`);
+                    }
                 } else {
-                    console.log(`[HOOKS] Stop: No assistant text found in transcript`);
+                    console.log(`[HOOKS] Stop: No new assistant text found in transcript`);
                 }
             } catch (error) {
                 console.error(`[HOOKS] Stop: Failed to parse transcript:`, error);

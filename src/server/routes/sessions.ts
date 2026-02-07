@@ -107,9 +107,14 @@ router.get("/:id", async (req, res) => {
         // 세션의 메시지 조회
         const messages = db.prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC").all(id);
 
+        // 실시간 상태 포함
+        const status = sessionStatusManager.getStatus(id);
+
         res.json({
             data: {
                 ...session,
+                currentStatus: status?.status || "idle",
+                backgroundTasksCount: status?.backgroundTasksCount || 0,
                 messages,
             },
         });

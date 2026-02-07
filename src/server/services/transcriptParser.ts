@@ -98,3 +98,46 @@ export const getEntriesSince = (
     // afterUuid 이후의 엔트리들만 반환 (afterUuid 제외)
     return entries.slice(startIndex + 1);
 };
+
+/**
+ * 특정 UUID 이후의 새 assistant text 엔트리들을 반환
+ * thinking, tool_use 타입은 제외하고 text만 추출
+ * 각 엔트리의 uuid와 텍스트를 반환
+ */
+export const getNewAssistantTexts = (
+    filePath: string,
+    afterUuid?: string
+): Array<{ uuid: string; text: string }> => {
+    const entries = parseTranscript(filePath);
+
+    // afterUuid 이후의 엔트리만 필터링
+    let startIndex = 0;
+    if (afterUuid) {
+        const idx = entries.findIndex((entry) => entry.uuid === afterUuid);
+        if (idx !== -1) {
+            startIndex = idx + 1;
+        }
+    }
+
+    const results: Array<{ uuid: string; text: string }> = [];
+
+    for (let i = startIndex; i < entries.length; i++) {
+        const entry = entries[i];
+        if (entry.type !== "assistant" || !entry.uuid || !entry.message?.content) continue;
+
+        if (Array.isArray(entry.message.content)) {
+            // text 타입만 추출 (thinking, tool_use 제외)
+            const textParts = entry.message.content
+                .filter((item) => item.type === "text" && item.text?.trim())
+                .map((item) => item.text || "");
+
+            if (textParts.length > 0) {
+                results.push({ uuid: entry.uuid, text: textParts.join("") });
+            }
+        } else if (typeof entry.message.content === "string" && entry.message.content.trim()) {
+            results.push({ uuid: entry.uuid, text: entry.message.content });
+        }
+    }
+
+    return results;
+};
