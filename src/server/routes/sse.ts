@@ -2,6 +2,7 @@
  * SSE Routes
  *
  * Server-Sent Events endpoints for real-time session status updates.
+ * Uses a unified connection that receives both global and session-specific events.
  */
 
 import {Router, type Router as RouterType} from "express";
@@ -11,21 +12,24 @@ import sessionStatusManager from "../services/sessionStatusManager.js";
 const router: RouterType = Router();
 
 /**
- * GET /api/sse/global
- *
- * Global SSE connection - receives status updates for all sessions
+ * GET /api/sse
+ * Unified SSE connection - receives both global and session-specific events
  */
-router.get("/global", (req, res) => {
-    console.log("[SSE] Global SSE connection established");
+router.get("/", (req, res) => {
+    console.log("[SSE] Unified SSE connection established");
 
     // Set SSE headers
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+    res.flushHeaders();
 
-    // Send initial connection event
-    res.write(`data: ${JSON.stringify({type: "connected"})}\n\n`);
+    // Register client and get unique ID
+    const clientId = sseManager.addClient(res);
+
+    // Send initial connection event with clientId
+    res.write(`data: ${JSON.stringify({type: "connected", clientId})}\n\n`);
 
     // Send all current session statuses (initial sync)
     const allStatuses = sessionStatusManager.getAllStatuses();
@@ -33,72 +37,62 @@ router.get("/global", (req, res) => {
         for (const status of allStatuses) {
             res.write(`data: ${JSON.stringify({type: "session_status", data: status})}\n\n`);
         }
-        console.log(`[SSE] Sent ${allStatuses.length} initial session statuses to global client`);
+        console.log(`[SSE] Sent ${allStatuses.length} initial session statuses to client ${clientId}`);
     }
-
-    // Register client
-    sseManager.addGlobalClient(res);
 
     // Keep connection alive with heartbeat
     const heartbeatInterval = setInterval(() => {
         try {
             res.write(`: heartbeat\n\n`);
         } catch (error) {
-            console.log("[SSE] Heartbeat failed, cleaning up");
+            console.log(`[SSE] Heartbeat failed for client ${clientId}, cleaning up`);
             clearInterval(heartbeatInterval);
         }
     }, 30000); // 30 seconds
 
     // Cleanup on connection close
     req.on("close", () => {
-        console.log("[SSE] Global SSE connection closed");
+        console.log(`[SSE] Unified SSE connection closed for client ${clientId}`);
         clearInterval(heartbeatInterval);
     });
 });
 
 /**
- * GET /api/sse/:sessionId
- *
- * Session-specific SSE connection - receives status updates for a specific session
+ * POST /api/sse/subscribe
+ * Subscribe client to a session's events
  */
-router.get("/:sessionId", (req, res) => {
-    const {sessionId} = req.params;
-    console.log(`[SSE] Session-specific SSE connection established for: ${sessionId}`);
+router.post("/subscribe", (req, res) => {
+    const {clientId, sessionId} = req.body;
 
-    // Set SSE headers
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-
-    // Send initial connection event
-    res.write(`data: ${JSON.stringify({type: "connected", sessionId})}\n\n`);
-
-    // Send current session status (initial sync)
-    const currentStatus = sessionStatusManager.getStatus(sessionId);
-    if (currentStatus) {
-        res.write(`data: ${JSON.stringify({type: "session_status", data: currentStatus})}\n\n`);
-        console.log(`[SSE] Sent initial session status for ${sessionId}`);
+    if (!clientId || !sessionId) {
+        return res.status(400).json({error: "clientId and sessionId required"});
     }
 
-    // Register client
-    sseManager.addSessionClient(sessionId, res);
+    sseManager.subscribeToSession(clientId, sessionId);
 
-    // Keep connection alive with heartbeat
-    const heartbeatInterval = setInterval(() => {
-        try {
-            res.write(`: heartbeat\n\n`);
-        } catch (error) {
-            console.log(`[SSE] Heartbeat failed for session ${sessionId}, cleaning up`);
-            clearInterval(heartbeatInterval);
-        }
-    }, 30000); // 30 seconds
+    // Send current session status to the client via SSE
+    const status = sessionStatusManager.getStatus(sessionId);
+    if (status) {
+        sseManager.sendToClient(clientId, {type: "session_status", data: status});
+    }
 
-    // Cleanup on connection close
-    req.on("close", () => {
-        console.log(`[SSE] Session-specific SSE connection closed for: ${sessionId}`);
-        clearInterval(heartbeatInterval);
-    });
+    res.json({ok: true});
+});
+
+/**
+ * POST /api/sse/unsubscribe
+ * Unsubscribe client from its current session
+ */
+router.post("/unsubscribe", (req, res) => {
+    const {clientId} = req.body;
+
+    if (!clientId) {
+        return res.status(400).json({error: "clientId required"});
+    }
+
+    sseManager.unsubscribeFromSession(clientId);
+
+    res.json({ok: true});
 });
 
 export default router;

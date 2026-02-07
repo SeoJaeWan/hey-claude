@@ -2,116 +2,135 @@
  * SSEManager
  *
  * Manages Server-Sent Events (SSE) connections for real-time updates.
- * Supports both global broadcast and session-specific messaging.
+ * Uses a single unified connection per client instead of separate global + session connections.
  */
 
 import type {Response} from "express";
+import {randomUUID} from "crypto";
 import type {SessionStatusData} from "./sessionStatusManager.js";
 
 interface SSEClient {
+    id: string;
     res: Response;
-    sessionId?: string;
+    subscribedSessionId?: string;
 }
 
 class SSEManager {
-    private globalClients: Set<SSEClient> = new Set();
-    private sessionClients: Map<string, Set<SSEClient>> = new Map();
+    private clients: Map<string, SSEClient> = new Map();
     private onSessionEmptyCallback: ((sessionId: string) => void) | null = null;
 
     /**
-     * Add global SSE client (receives all session updates)
+     * Add a new SSE client and return its unique ID
      */
-    public addGlobalClient(res: Response): void {
-        const client: SSEClient = {res};
-        this.globalClients.add(client);
-        console.log(`[SSE MANAGER] Global client connected (total: ${this.globalClients.size})`);
+    public addClient(res: Response): string {
+        const id = randomUUID();
+        const client: SSEClient = {id, res};
+        this.clients.set(id, client);
+        console.log(`[SSE MANAGER] Client connected: ${id} (total: ${this.clients.size})`);
 
-        // Setup connection cleanup
         res.on("close", () => {
-            this.removeGlobalClient(client);
+            this.removeClient(id);
         });
+
+        return id;
     }
 
     /**
-     * Remove global SSE client
+     * Remove a client
      */
-    public removeGlobalClient(client: SSEClient): void {
-        this.globalClients.delete(client);
-        console.log(`[SSE MANAGER] Global client disconnected (total: ${this.globalClients.size})`);
-    }
+    public removeClient(id: string): void {
+        const client = this.clients.get(id);
+        if (!client) return;
 
-    /**
-     * Add session-specific SSE client
-     */
-    public addSessionClient(sessionId: string, res: Response): void {
-        const client: SSEClient = {res, sessionId};
+        const prevSessionId = client.subscribedSessionId;
+        this.clients.delete(id);
+        console.log(`[SSE MANAGER] Client disconnected: ${id} (total: ${this.clients.size})`);
 
-        if (!this.sessionClients.has(sessionId)) {
-            this.sessionClients.set(sessionId, new Set());
-        }
-
-        this.sessionClients.get(sessionId)!.add(client);
-        console.log(`[SSE MANAGER] Session client connected for ${sessionId} (total: ${this.sessionClients.get(sessionId)!.size})`);
-
-        // Setup connection cleanup
-        res.on("close", () => {
-            this.removeSessionClient(sessionId, client);
-        });
-    }
-
-    /**
-     * Remove session-specific SSE client
-     */
-    public removeSessionClient(sessionId: string, client: SSEClient): void {
-        const clients = this.sessionClients.get(sessionId);
-        if (clients) {
-            clients.delete(client);
-            console.log(`[SSE MANAGER] Session client disconnected for ${sessionId} (total: ${clients.size})`);
-
-            // Cleanup empty sets
-            if (clients.size === 0) {
-                this.sessionClients.delete(sessionId);
-                // 세션 클라이언트가 0이 되면 콜백 호출
-                if (this.onSessionEmptyCallback) {
-                    this.onSessionEmptyCallback(sessionId);
-                }
-            }
+        if (prevSessionId) {
+            this.checkSessionEmpty(prevSessionId);
         }
     }
 
     /**
-     * 세션 클라이언트가 0이 될 때 호출되는 콜백 등록
+     * Subscribe a client to a specific session's events
+     */
+    public subscribeToSession(clientId: string, sessionId: string): void {
+        const client = this.clients.get(clientId);
+        if (!client) return;
+
+        const prevSessionId = client.subscribedSessionId;
+        client.subscribedSessionId = sessionId;
+        console.log(`[SSE MANAGER] Client ${clientId} subscribed to session ${sessionId}`);
+
+        if (prevSessionId && prevSessionId !== sessionId) {
+            this.checkSessionEmpty(prevSessionId);
+        }
+    }
+
+    /**
+     * Unsubscribe a client from its current session
+     */
+    public unsubscribeFromSession(clientId: string): void {
+        const client = this.clients.get(clientId);
+        if (!client) return;
+
+        const prevSessionId = client.subscribedSessionId;
+        client.subscribedSessionId = undefined;
+        console.log(`[SSE MANAGER] Client ${clientId} unsubscribed`);
+
+        if (prevSessionId) {
+            this.checkSessionEmpty(prevSessionId);
+        }
+    }
+
+    /**
+     * Check if a session has no subscribers and trigger callback
+     */
+    private checkSessionEmpty(sessionId: string): void {
+        const hasSubscribers = Array.from(this.clients.values()).some(
+            (c) => c.subscribedSessionId === sessionId
+        );
+        if (!hasSubscribers && this.onSessionEmptyCallback) {
+            this.onSessionEmptyCallback(sessionId);
+        }
+    }
+
+    /**
+     * Set callback for when a session loses all subscribers
      */
     public setOnSessionEmpty(callback: (sessionId: string) => void): void {
         this.onSessionEmptyCallback = callback;
     }
 
     /**
-     * Broadcast to all global clients
+     * Broadcast to all connected clients (global events like session_status)
      */
     public broadcastGlobal(data: SessionStatusData): void {
         const message = `data: ${JSON.stringify({type: "session_status", data})}\n\n`;
 
-        for (const client of this.globalClients) {
+        for (const client of this.clients.values()) {
             try {
                 client.res.write(message);
             } catch (error) {
-                console.error("[SSE MANAGER] Failed to write to global client:", error);
-                this.removeGlobalClient(client);
+                console.error("[SSE MANAGER] Failed to write to client:", error);
+                this.removeClient(client.id);
             }
         }
 
-        console.log(`[SSE MANAGER] Broadcasted session status to ${this.globalClients.size} global clients`);
+        console.log(`[SSE MANAGER] Broadcasted session status to ${this.clients.size} clients`);
     }
 
     /**
-     * Broadcast to session-specific clients
-     * 클라이언트가 없으면 주요 이벤트를 Global SSE로 포워딩 (캐시 무효화용)
+     * Broadcast to session-subscribed clients.
+     * If no clients are subscribed, forward key events as lightweight notifications to all clients.
      */
-    public broadcastToSession(sessionId: string, data: SessionStatusData | any): void {
-        const clients = this.sessionClients.get(sessionId);
-        if (!clients || clients.size === 0) {
-            // 주요 이벤트를 Global SSE로 포워딩
+    public broadcastToSession(sessionId: string, data: any): void {
+        const subscribedClients = Array.from(this.clients.values()).filter(
+            (c) => c.subscribedSessionId === sessionId
+        );
+
+        if (subscribedClients.length === 0) {
+            // Forward key events to all clients as lightweight notification
             const eventType = data?.type;
             if (eventType === "assistant_message" || eventType === "tool_use_message" || eventType === "turn_complete") {
                 const notification = `data: ${JSON.stringify({
@@ -120,46 +139,60 @@ class SSEManager {
                     eventType
                 })}\n\n`;
 
-                for (const client of this.globalClients) {
+                for (const client of this.clients.values()) {
                     try {
                         client.res.write(notification);
                     } catch (error) {
-                        this.removeGlobalClient(client);
+                        this.removeClient(client.id);
                     }
                 }
-                console.log(`[SSE MANAGER] No session clients for ${sessionId}, forwarded ${eventType} to ${this.globalClients.size} global clients`);
+                console.log(`[SSE MANAGER] No subscribers for ${sessionId}, forwarded ${eventType} to ${this.clients.size} clients`);
             }
             return;
         }
 
-        // If data has a 'type' field, use it directly; otherwise wrap it as session_status
         const eventData = data.type ? data : {type: "session_status", data};
         const message = `data: ${JSON.stringify(eventData)}\n\n`;
 
-        for (const client of clients) {
+        for (const client of subscribedClients) {
             try {
                 client.res.write(message);
             } catch (error) {
-                console.error(`[SSE MANAGER] Failed to write to session ${sessionId} client:`, error);
-                this.removeSessionClient(sessionId, client);
+                console.error(`[SSE MANAGER] Failed to write to client ${client.id}:`, error);
+                this.removeClient(client.id);
             }
         }
 
-        console.log(`[SSE MANAGER] Broadcasted to ${clients.size} session clients (type: ${eventData.type || 'session_status'})`);
+        console.log(`[SSE MANAGER] Broadcasted to ${subscribedClients.length} subscribers (type: ${eventData.type || 'session_status'})`);
+    }
+
+    /**
+     * Send event to a specific client
+     */
+    public sendToClient(clientId: string, data: any): void {
+        const client = this.clients.get(clientId);
+        if (!client) return;
+
+        const message = `data: ${JSON.stringify(data)}\n\n`;
+        try {
+            client.res.write(message);
+        } catch (error) {
+            this.removeClient(clientId);
+        }
     }
 
     /**
      * Get connection stats
      */
-    public getStats(): {globalClients: number; sessionClients: number} {
-        let sessionClientsTotal = 0;
-        for (const clients of this.sessionClients.values()) {
-            sessionClientsTotal += clients.size;
+    public getStats(): {totalClients: number; subscribedClients: number} {
+        let subscribedCount = 0;
+        for (const client of this.clients.values()) {
+            if (client.subscribedSessionId) subscribedCount++;
         }
 
         return {
-            globalClients: this.globalClients.size,
-            sessionClients: sessionClientsTotal
+            totalClients: this.clients.size,
+            subscribedClients: subscribedCount
         };
     }
 }
