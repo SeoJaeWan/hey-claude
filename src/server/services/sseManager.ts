@@ -103,6 +103,15 @@ class SSEManager {
     }
 
     /**
+     * Check if a session has any subscribers
+     */
+    public hasSessionSubscribers(sessionId: string): boolean {
+        return Array.from(this.clients.values()).some(
+            (c) => c.subscribedSessionId === sessionId
+        );
+    }
+
+    /**
      * Broadcast to all connected clients (global events like session_status)
      */
     public broadcastGlobal(data: SessionStatusData): void {
@@ -132,7 +141,7 @@ class SSEManager {
         if (subscribedClients.length === 0) {
             // Forward key events to all clients as lightweight notification
             const eventType = data?.type;
-            if (eventType === "assistant_message" || eventType === "tool_use_message" || eventType === "turn_complete") {
+            if (eventType === "assistant_message" || eventType === "tool_use_message" || eventType === "turn_complete" || eventType === "ask_user_question" || eventType === "loading_start") {
                 const notification = `data: ${JSON.stringify({
                     type: "session_data_updated",
                     sessionId,

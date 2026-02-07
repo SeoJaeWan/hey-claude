@@ -6,6 +6,7 @@ import sseManager from "../services/sseManager.js";
 import { buildMessageFromToolUse } from "../services/messageBuilder.js";
 import { getNewAssistantTexts } from "../services/transcriptParser.js";
 import sessionStatusManager from "../services/sessionStatusManager.js";
+import claudeProcessManager from "../services/claudeProcessManager.js";
 import { homedir } from "os";
 import { join } from "path";
 import { existsSync } from "fs";
@@ -112,26 +113,51 @@ router.post("/session", async (req, res) => {
 
             console.log(`[HOOKS] SessionStart: Updated existing session ${sessionId}`);
         } else {
-            // 새 세션 생성
-            const newSessionId = randomUUID();
-            const now = new Date().toISOString();
+            // 미연결 세션 찾기 (웹 UI에서 먼저 생성된 세션)
+            const unlinked = db.prepare(`
+                SELECT id FROM sessions
+                WHERE claude_session_id IS NULL
+                  AND type = 'claude-code'
+                  AND status = 'active'
+                ORDER BY created_at DESC
+                LIMIT 1
+            `).get() as { id: string } | undefined;
 
-            db.prepare(`
-                INSERT INTO sessions (id, type, claude_session_id, model, project_path, source, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-                newSessionId,
-                "claude-code",
-                sessionId,
-                model || null,
-                projectPath,
-                source === 'resume' ? 'terminal' : 'web',
-                "active",
-                now,
-                now
-            );
+            if (unlinked) {
+                // 기존 미연결 세션에 claude_session_id 연결
+                const now = new Date().toISOString();
+                db.prepare(`
+                    UPDATE sessions
+                    SET claude_session_id = ?, model = ?, source = ?, updated_at = ?
+                    WHERE id = ?
+                `).run(sessionId, model || null, source === 'resume' ? 'terminal' : 'web', now, unlinked.id);
 
-            console.log(`[HOOKS] SessionStart: Created new session ${newSessionId} for claude_session_id ${sessionId}`);
+                // 캐시에도 저장
+                sessionMappingCache.set(sessionId, unlinked.id);
+                console.log(`[HOOKS] SessionStart: Linked claude_session_id ${sessionId} → existing session ${unlinked.id}`);
+            } else {
+                // 미연결 세션 없음 → 터미널에서 직접 시작된 세션
+                const newSessionId = randomUUID();
+                const now = new Date().toISOString();
+
+                db.prepare(`
+                    INSERT INTO sessions (id, type, claude_session_id, model, project_path, source, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                    newSessionId,
+                    "claude-code",
+                    sessionId,
+                    model || null,
+                    projectPath,
+                    source === 'resume' ? 'terminal' : 'web',
+                    "active",
+                    now,
+                    now
+                );
+
+                sessionMappingCache.set(sessionId, newSessionId);
+                console.log(`[HOOKS] SessionStart: Created new session ${newSessionId} for claude_session_id ${sessionId}`);
+            }
         }
 
         res.json({ success: true });
@@ -416,6 +442,14 @@ router.post("/stop", async (req, res) => {
 
         // 세션 상태를 idle로 변경
         sessionStatusManager.setStatus(internalSessionId, "idle");
+
+        // 트리거 2: idle 전환 시 구독자가 없으면 PTY 종료
+        if (!sseManager.hasSessionSubscribers(internalSessionId)) {
+            if (claudeProcessManager.hasProcess(internalSessionId)) {
+                console.log(`[CLEANUP] Terminating PTY after turn complete for session ${internalSessionId} (no subscribers)`);
+                claudeProcessManager.terminateProcess(internalSessionId);
+            }
+        }
 
         // 세션 updated_at 갱신
         db.prepare(`

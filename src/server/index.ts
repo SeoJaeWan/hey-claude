@@ -239,18 +239,16 @@ const startServer = async (
             sseManager.broadcastGlobal(data);
         });
 
-        // 6. SSE 세션 클라이언트가 0이 되면 idle PTY 종료 (10초 딜레이)
+        // 6. SSE 구독자 0 + idle 상태 → PTY 종료
         sseManager.setOnSessionEmpty((sessionId) => {
-            setTimeout(() => {
-                // 딜레이 후에도 클라이언트가 없고 idle이면 종료
-                const status = sessionStatusManager.getStatus(sessionId);
-                const isIdle = !status || status.status === "idle";
-
-                if (isIdle && claudeProcessManager.hasProcess(sessionId)) {
-                    console.log(`[CLEANUP] Terminating idle PTY for session ${sessionId} (no SSE clients)`);
+            const status = sessionStatusManager.getStatus(sessionId);
+            if (!status || status.status === "idle") {
+                if (claudeProcessManager.hasProcess(sessionId)) {
+                    console.log(`[CLEANUP] Terminating idle PTY for session ${sessionId} (no subscribers + idle)`);
                     claudeProcessManager.terminateProcess(sessionId);
                 }
-            }, 10000);
+            }
+            // streaming/background_tasks 상태면 PTY 유지 (hooks.ts stop에서 처리)
         });
 
         // 7. Cleanup 핸들러 설정

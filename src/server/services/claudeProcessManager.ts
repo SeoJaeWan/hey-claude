@@ -39,45 +39,8 @@ export interface ClaudeProcess {
 // 청크 콜백 타입 (TUI 출력)
 export type OutputCallback = (data: string) => void;
 
-// 유휴 타임아웃 (5분)
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-
-// 타임아웃 체크 간격 (1분)
-const CLEANUP_INTERVAL_MS = 60 * 1000;
-
 class ClaudeProcessManager {
     private processes: Map<string, ClaudeProcess> = new Map();
-    private cleanupInterval: NodeJS.Timeout | null = null;
-
-    constructor() {
-        // 주기적 정리 시작
-        this.startCleanupInterval();
-    }
-
-    /**
-     * 주기적으로 유휴 프로세스 정리
-     */
-    private startCleanupInterval(): void {
-        this.cleanupInterval = setInterval(() => {
-            this.cleanupIdleProcesses();
-        }, CLEANUP_INTERVAL_MS);
-    }
-
-    /**
-     * 유휴 타임아웃 초과한 프로세스 종료
-     */
-    private cleanupIdleProcesses(): void {
-        const now = Date.now();
-
-        for (const [sessionId, cp] of this.processes) {
-            const idleTime = now - cp.lastActivityAt.getTime();
-
-            if (cp.state === 'idle' && idleTime > IDLE_TIMEOUT_MS) {
-                console.log(`[PTY MANAGER] Terminating idle process for session ${sessionId} (idle for ${Math.round(idleTime / 1000)}s)`);
-                this.terminateProcess(sessionId);
-            }
-        }
-    }
 
     /**
      * 세션에 대한 PTY 프로세스 가져오기 또는 생성
@@ -255,11 +218,6 @@ class ClaudeProcessManager {
      */
     cleanup(): void {
         console.log(`[PTY MANAGER] Cleaning up all processes...`);
-
-        if (this.cleanupInterval) {
-            clearInterval(this.cleanupInterval);
-            this.cleanupInterval = null;
-        }
 
         for (const [sessionId, cp] of this.processes) {
             console.log(`[PTY MANAGER] Terminating process for session ${sessionId}`);
