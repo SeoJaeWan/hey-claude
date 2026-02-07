@@ -1,7 +1,6 @@
 import { Router, type Router as RouterType } from "express";
 import { basename } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
-import { getCurrentBranch, getGitStatus, getRecentCommits } from "../services/git.js";
 
 const router: RouterType = Router();
 
@@ -44,22 +43,6 @@ router.get("/info", async (req, res) => {
         // 프로젝트 이름 (폴더명)
         const name = basename(projectPath);
 
-        // Git 정보
-        let gitInfo = null;
-        try {
-            const branch = await getCurrentBranch(projectPath);
-            const status = await getGitStatus(projectPath);
-            const commits = await getRecentCommits(projectPath, 5);
-
-            gitInfo = {
-                branch,
-                status,
-                recentCommits: commits,
-            };
-        } catch (error) {
-            // Git이 없는 프로젝트
-        }
-
         // package.json 정보
         let packageInfo = null;
         const packageJsonPath = `${projectPath}/package.json`;
@@ -80,8 +63,6 @@ router.get("/info", async (req, res) => {
             data: {
                 path: projectPath,
                 name,
-                hasGit: gitInfo !== null,
-                git: gitInfo,
                 package: packageInfo,
             },
         });
