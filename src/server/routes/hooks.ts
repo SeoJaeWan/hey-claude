@@ -12,6 +12,9 @@ import { existsSync } from "fs";
 
 const router: RouterType = Router();
 
+// Session mapping cache: claudeSessionId → internalSessionId
+const sessionMappingCache = new Map<string, string>();
+
 /**
  * Claude transcript 파일 경로 구성
  * Claude는 ~/.claude/projects/{project-hash}/{session-id}.jsonl 에 transcript 저장
@@ -40,13 +43,22 @@ const findTranscriptPath = (claudeSessionId: string, projectPath?: string): stri
  * 2. 없으면 현재 streaming 상태이면서 claude_session_id가 NULL인 세션에 연결
  */
 const resolveInternalSession = (claudeSessionId: string): { id: string } | undefined => {
+    // 1. 캐시 확인
+    const cached = sessionMappingCache.get(claudeSessionId);
+    if (cached) {
+        return { id: cached };
+    }
+
     const db = getDatabase();
 
-    // 1차: claude_session_id로 직접 조회
+    // 2. DB에서 조회
     const direct = db.prepare("SELECT id FROM sessions WHERE claude_session_id = ?").get(claudeSessionId) as { id: string } | undefined;
-    if (direct) return direct;
+    if (direct) {
+        sessionMappingCache.set(claudeSessionId, direct.id);
+        return direct;
+    }
 
-    // 2차: streaming 상태이면서 claude_session_id가 NULL인 최신 세션 찾기
+    // 3. 미연결 세션 찾기
     const unlinked = db.prepare(`
         SELECT id FROM sessions
         WHERE claude_session_id IS NULL
@@ -57,9 +69,9 @@ const resolveInternalSession = (claudeSessionId: string): { id: string } | undef
     `).get() as { id: string } | undefined;
 
     if (unlinked) {
-        // claude_session_id 연결
         db.prepare("UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?")
             .run(claudeSessionId, new Date().toISOString(), unlinked.id);
+        sessionMappingCache.set(claudeSessionId, unlinked.id);
         console.log(`[HOOKS] Linked claude_session_id ${claudeSessionId} → internal ${unlinked.id}`);
         return unlinked;
     }
@@ -257,7 +269,9 @@ router.post("/tool-use", async (req, res) => {
                 const transcriptPath = findTranscriptPath(claudeSessionId, cwd);
                 if (transcriptPath) {
                     const lastUuid = sessionStatusManager.getLastProcessedUuid(internalSessionId);
-                    const newTexts = getNewAssistantTexts(transcriptPath, lastUuid);
+                    const lastOffset = sessionStatusManager.getLastReadOffset(internalSessionId);
+                    const { results: newTexts, newOffset } = await getNewAssistantTexts(transcriptPath, lastUuid, lastOffset);
+                    sessionStatusManager.setLastReadOffset(internalSessionId, newOffset);
 
                     for (const { uuid, text } of newTexts) {
                         const assistantMsgId = randomUUID();
@@ -357,7 +371,9 @@ router.post("/stop", async (req, res) => {
         if (resolvedTranscriptPath) {
             try {
                 const lastUuid = sessionStatusManager.getLastProcessedUuid(internalSessionId);
-                const newTexts = getNewAssistantTexts(resolvedTranscriptPath, lastUuid);
+                const lastOffset = sessionStatusManager.getLastReadOffset(internalSessionId);
+                const { results: newTexts, newOffset } = await getNewAssistantTexts(resolvedTranscriptPath, lastUuid, lastOffset);
+                sessionStatusManager.setLastReadOffset(internalSessionId, newOffset);
 
                 if (newTexts.length > 0) {
                     for (const { uuid, text } of newTexts) {

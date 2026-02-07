@@ -3,17 +3,19 @@ import {useQueryClient} from "@tanstack/react-query";
 import {useSessionQuery} from "../session";
 import type {Message} from "../../../../types";
 
-// snake_case → camelCase 변환
+// snake_case → camelCase 변환 (DB format + SSE format 둘 다 처리)
 const convertMessage = (msg: any): Message => ({
     id: msg.id,
-    sessionId: msg.session_id,
+    sessionId: msg.session_id || msg.sessionId,
     role: msg.role,
     content: msg.content,
-    images: msg.images ? JSON.parse(msg.images) : undefined,
-    changes: msg.changes ? JSON.parse(msg.changes) : undefined,
-    createdAt: msg.timestamp || msg.created_at,
-    questionData: msg.question_data ? JSON.parse(msg.question_data) : undefined,
-    questionSubmitted: msg.question_submitted === 1
+    images: msg.images ? (typeof msg.images === 'string' ? JSON.parse(msg.images) : msg.images) : undefined,
+    changes: msg.changes ? (typeof msg.changes === 'string' ? JSON.parse(msg.changes) : msg.changes) : undefined,
+    createdAt: msg.timestamp || msg.created_at || msg.createdAt,
+    isQuestion: msg.isQuestion || msg.is_question || false,
+    questionData: msg.questionData || (msg.question_data ? (typeof msg.question_data === 'string' ? JSON.parse(msg.question_data) : msg.question_data) : undefined),
+    questionSubmitted: msg.questionSubmitted || msg.question_submitted === 1,
+    toolUsages: msg.toolUsages || (msg.tool_usages ? (typeof msg.tool_usages === 'string' ? JSON.parse(msg.tool_usages) : msg.tool_usages) : undefined),
 });
 
 // 이미지 파일을 Base64로 인코딩

@@ -1,9 +1,10 @@
+import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import FileChangesCard from "../fileChangesCard";
 import QuestionCard from "../questionCard";
-import type { Message as MessageType, QuestionAnswer } from "../../../types";
+import type { Message as MessageType, QuestionAnswer, FileChangeType } from "../../../types";
 
 interface MessageProps {
   message: MessageType;
@@ -71,6 +72,17 @@ const Message = ({
 }: MessageProps) => {
   const isUser = message.role === "user";
   const showCursor = !isUser && isStreaming;
+
+  // toolUsages에서 파일 변경사항 추출
+  const toolFileChanges = useMemo(() => {
+    if (!message.toolUsages) return [];
+    return message.toolUsages
+      .filter((t: any) => ['Write', 'Edit'].includes(t.name) && t.input?.file_path)
+      .map((t: any) => ({
+        path: t.input.file_path,
+        type: (t.name === 'Write' ? 'added' : 'modified') as FileChangeType
+      }));
+  }, [message.toolUsages]);
 
   const handleQuestionSubmit = (answers: QuestionAnswer[]) => {
     if (!message.questionData || !onQuestionSubmit) return;
@@ -147,6 +159,11 @@ const Message = ({
               })),
             ]}
           />
+        )}
+
+        {/* 도구 사용에 의한 파일 변경사항 (toolUsages에서 추출) */}
+        {!isUser && toolFileChanges.length > 0 && !message.changes && (
+          <FileChangesCard changes={toolFileChanges} />
         )}
       </div>
     </div>

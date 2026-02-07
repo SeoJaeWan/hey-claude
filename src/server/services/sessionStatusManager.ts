@@ -18,6 +18,7 @@ class SessionStatusManager {
     private statuses: Map<string, SessionStatusData> = new Map();
     private broadcastCallback: ((data: SessionStatusData) => void) | null = null;
     private lastProcessedUuids: Map<string, string> = new Map();
+    private lastReadOffsets: Map<string, number> = new Map();
 
     /**
      * Register broadcast callback (called by SSEManager)
@@ -131,11 +132,26 @@ class SessionStatusManager {
     }
 
     /**
+     * Get last read byte offset for a session's transcript file
+     */
+    public getLastReadOffset(sessionId: string): number {
+        return this.lastReadOffsets.get(sessionId) || 0;
+    }
+
+    /**
+     * Set last read byte offset for a session's transcript file
+     */
+    public setLastReadOffset(sessionId: string, offset: number): void {
+        this.lastReadOffsets.set(sessionId, offset);
+    }
+
+    /**
      * Remove session status (cleanup)
      */
     public removeSession(sessionId: string): void {
         this.statuses.delete(sessionId);
         this.lastProcessedUuids.delete(sessionId);
+        this.lastReadOffsets.delete(sessionId);
         console.log(`[SESSION STATUS] Removed session ${sessionId}`);
     }
 }

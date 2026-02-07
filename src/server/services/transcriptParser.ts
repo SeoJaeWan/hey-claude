@@ -2,7 +2,8 @@
  * Transcript Parser Service - Claude Code transcript JSONL 파싱
  */
 
-import fs from "fs";
+import fs from "fs/promises";
+import { existsSync } from "fs";
 
 export interface TranscriptEntry {
     type: "user" | "assistant" | "system" | "progress" | "file-history-snapshot";
@@ -20,37 +21,80 @@ export interface TranscriptEntry {
 }
 
 /**
- * JSONL 파일 전체를 파싱하여 엔트리 배열 반환
+ * 증분 읽기: offset부터 파일 끝까지 읽어 새 엔트리와 새 offset 반환
  */
-export const parseTranscript = (filePath: string): TranscriptEntry[] => {
+export const parseTranscriptIncremental = async (
+    filePath: string,
+    fromOffset: number = 0
+): Promise<{ entries: TranscriptEntry[]; newOffset: number }> => {
+    // 1. 파일 크기 확인
+    const stat = await fs.stat(filePath);
+
+    // 파일이 truncate된 경우 (offset이 파일 크기보다 큼) → 처음부터
+    const startOffset = fromOffset > stat.size ? 0 : fromOffset;
+
+    if (startOffset >= stat.size) {
+        return { entries: [], newOffset: startOffset };
+    }
+
+    // 2. offset부터 끝까지 읽기
+    const fileHandle = await fs.open(filePath, 'r');
+    try {
+        const readSize = stat.size - startOffset;
+        const buffer = Buffer.alloc(readSize);
+        await fileHandle.read(buffer, 0, readSize, startOffset);
+        const content = buffer.toString('utf-8');
+
+        // 3. 라인 분할 + 불완전 라인 처리
+        const lines = content.split('\n');
+        let newOffset: number;
+
+        // 마지막 라인이 비어있으면 (줄바꿈으로 끝남) → 모든 라인 처리 가능
+        if (lines[lines.length - 1] === '') {
+            lines.pop(); // 빈 마지막 요소 제거
+            newOffset = stat.size;
+        } else {
+            // 마지막 라인이 불완전 → 제외하고 처리
+            const lastLine = lines.pop();
+            newOffset = stat.size - Buffer.byteLength(lastLine || '', 'utf-8');
+        }
+
+        // 4. JSON 파싱
+        const entries: TranscriptEntry[] = [];
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+                entries.push(JSON.parse(trimmed) as TranscriptEntry);
+            } catch {
+                console.warn(`Failed to parse transcript line: ${trimmed.substring(0, 100)}...`);
+            }
+        }
+
+        return { entries, newOffset };
+    } finally {
+        await fileHandle.close();
+    }
+};
+
+/**
+ * JSONL 파일 전체를 파싱하여 엔트리 배열 반환 (async 버전)
+ */
+export const parseTranscript = async (filePath: string): Promise<TranscriptEntry[]> => {
     // 파일 존재 여부 확인
-    if (!fs.existsSync(filePath)) {
+    if (!existsSync(filePath)) {
         throw new Error(`Transcript file not found: ${filePath}`);
     }
 
-    const content = fs.readFileSync(filePath, "utf-8");
-    const lines = content.split("\n").filter((line) => line.trim() !== "");
-
-    const entries: TranscriptEntry[] = [];
-
-    for (const line of lines) {
-        try {
-            const entry = JSON.parse(line) as TranscriptEntry;
-            entries.push(entry);
-        } catch (error) {
-            // 파싱 실패한 줄은 skip (로그만)
-            console.warn(`Failed to parse transcript line: ${line.substring(0, 100)}...`);
-        }
-    }
-
+    const { entries } = await parseTranscriptIncremental(filePath, 0);
     return entries;
 };
 
 /**
- * 파일을 뒤에서부터 읽어 마지막 assistant 응답 텍스트 반환
+ * 파일을 뒤에서부터 읽어 마지막 assistant 응답 텍스트 반환 (async 버전)
  */
-export const getLastAssistantText = (filePath: string): string | null => {
-    const entries = parseTranscript(filePath);
+export const getLastAssistantText = async (filePath: string): Promise<string | null> => {
+    const entries = await parseTranscript(filePath);
 
     // 뒤에서부터 검색
     for (let i = entries.length - 1; i >= 0; i--) {
@@ -79,13 +123,13 @@ export const getLastAssistantText = (filePath: string): string | null => {
 };
 
 /**
- * 특정 UUID 이후의 엔트리들만 반환 (중복 처리 방지용)
+ * 특정 UUID 이후의 엔트리들만 반환 (중복 처리 방지용, async 버전)
  */
-export const getEntriesSince = (
+export const getEntriesSince = async (
     filePath: string,
     afterUuid: string
-): TranscriptEntry[] => {
-    const entries = parseTranscript(filePath);
+): Promise<TranscriptEntry[]> => {
+    const entries = await parseTranscript(filePath);
 
     // afterUuid를 찾기
     const startIndex = entries.findIndex((entry) => entry.uuid === afterUuid);
@@ -100,15 +144,16 @@ export const getEntriesSince = (
 };
 
 /**
- * 특정 UUID 이후의 새 assistant text 엔트리들을 반환
+ * 특정 UUID 이후의 새 assistant text 엔트리들을 반환 (증분 읽기 버전)
  * thinking, tool_use 타입은 제외하고 text만 추출
  * 각 엔트리의 uuid와 텍스트를 반환
  */
-export const getNewAssistantTexts = (
+export const getNewAssistantTexts = async (
     filePath: string,
-    afterUuid?: string
-): Array<{ uuid: string; text: string }> => {
-    const entries = parseTranscript(filePath);
+    afterUuid?: string,
+    fromOffset?: number
+): Promise<{ results: Array<{ uuid: string; text: string }>; newOffset: number }> => {
+    const { entries, newOffset } = await parseTranscriptIncremental(filePath, fromOffset || 0);
 
     // afterUuid 이후의 엔트리만 필터링
     let startIndex = 0;
@@ -139,5 +184,5 @@ export const getNewAssistantTexts = (
         }
     }
 
-    return results;
+    return { results, newOffset };
 };
