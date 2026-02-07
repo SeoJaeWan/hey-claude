@@ -127,6 +127,24 @@ const createTables = (database: Database.Database): void => {
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
     `);
+
+    // commands 테이블 (명령어 캐시)
+    database.exec(`
+        CREATE TABLE IF NOT EXISTS commands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_path TEXT NOT NULL,
+            name TEXT NOT NULL,
+            trigger TEXT NOT NULL,
+            description TEXT,
+            source TEXT NOT NULL,
+            allowed_tools TEXT,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_path, name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_commands_project
+            ON commands(project_path);
+    `);
 };
 
 export const closeDatabase = (): void => {
