@@ -1,7 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, useOutletContext } from "react-router-dom";
+import { ArrowDown } from "lucide-react";
 import PageHeader from "../../components/commons/pageHeader";
 import MessageList from "../../components/chat/messageList";
+import type { MessageListHandle } from "../../components/chat/messageList";
 import ChatInput from "../../components/chat/input";
 import { DEFAULT_CLAUDE_MODEL, DEFAULT_PROVIDER } from "../../data/models";
 import {
@@ -22,6 +24,10 @@ const ChatPage = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const { onMenuClick } = useOutletContext<{ onMenuClick: () => void }>();
   const { t } = useTranslation();
+
+  // Scroll to bottom
+  const messageListRef = useRef<MessageListHandle>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   // 세션 정보 조회
   const { data: session } = useSessionQuery(sessionId);
@@ -178,6 +184,7 @@ const ChatPage = () => {
 
       {/* Messages */}
       <MessageList
+        ref={messageListRef}
         messages={messages}
         isStreaming={isStreaming}
         isSubmitting={isSubmitting}
@@ -186,7 +193,18 @@ const ChatPage = () => {
         hasMore={hasNextPage}
         onLoadMore={fetchNextPage}
         isLoadingMore={isFetchingNextPage}
+        onAtBottomStateChange={setIsAtBottom}
       />
+
+      {/* Scroll to bottom */}
+      {!isAtBottom && messages.length > 0 && (
+        <button
+          onClick={() => messageListRef.current?.scrollToBottom()}
+          className="absolute bottom-8 right-2 p-2 rounded-full bg-bg-secondary border border-border-default text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-all shadow-sm z-10"
+        >
+          <ArrowDown size={18} />
+        </button>
+      )}
 
       {/* Input */}
       <ChatInput

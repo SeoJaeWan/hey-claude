@@ -1,7 +1,18 @@
-import { useRef, useCallback, useState, useEffect } from "react";
+import {
+  useRef,
+  useCallback,
+  useState,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import Message from "../message";
 import type { Message as MessageType, QuestionAnswer } from "../../../types";
+
+export interface MessageListHandle {
+  scrollToBottom: () => void;
+}
 
 interface MessageListProps {
   messages: MessageType[];
@@ -16,21 +27,36 @@ interface MessageListProps {
   hasMore?: boolean;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
+  onAtBottomStateChange?: (atBottom: boolean) => void;
 }
 
-const MessageList = ({
-  messages,
-  isStreaming = false,
-  isSubmitting = false,
-  onQuestionSubmit,
-  onPermissionDecide,
-  hasMore = false,
-  onLoadMore,
-  isLoadingMore = false,
-}: MessageListProps) => {
-  const virtuosoRef = useRef<VirtuosoHandle>(null);
+const MessageList = forwardRef<MessageListHandle, MessageListProps>(
+  (
+    {
+      messages,
+      isStreaming = false,
+      isSubmitting = false,
+      onQuestionSubmit,
+      onPermissionDecide,
+      hasMore = false,
+      onLoadMore,
+      isLoadingMore = false,
+      onAtBottomStateChange,
+    },
+    ref,
+  ) => {
+    const virtuosoRef = useRef<VirtuosoHandle>(null);
 
-  // firstItemIndex: 이전 메시지 prepend 시 스크롤 유지를 위해 사용
+    useImperativeHandle(ref, () => ({
+      scrollToBottom: () => {
+        virtuosoRef.current?.scrollToIndex({
+          index: messages.length - 1,
+          behavior: "smooth",
+        });
+      },
+    }));
+
+    // firstItemIndex: 이전 메시지 prepend 시 스크롤 유지를 위해 사용
   // 초기값을 큰 수로 설정하고, 메시지가 prepend될수록 감소
   const START_INDEX = 100000;
   const [firstItemIndex, setFirstItemIndex] = useState(START_INDEX);
@@ -54,13 +80,6 @@ const MessageList = ({
     }
   }, [hasMore, isLoadingMore, onLoadMore]);
 
-  console.log(
-    isStreaming,
-    messages.length > 0,
-    messages[messages.length - 1],
-    messages[messages.length - 1].role !== "assistant",
-  );
-
   return (
     <div className="flex-1 overflow-hidden">
       {messages.length === 0 ? (
@@ -79,6 +98,7 @@ const MessageList = ({
           initialTopMostItemIndex={messages.length - 1}
           data={messages}
           startReached={handleStartReached}
+          atBottomStateChange={onAtBottomStateChange}
           followOutput="smooth"
           itemContent={(_, message: MessageType) => (
             <div className="max-w-3xl mx-auto py-1.5">
@@ -123,6 +143,9 @@ const MessageList = ({
       )}
     </div>
   );
-};
+  },
+);
+
+MessageList.displayName = "MessageList";
 
 export default MessageList;
