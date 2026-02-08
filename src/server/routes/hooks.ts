@@ -16,6 +16,18 @@ const router: RouterType = Router();
 // Session mapping cache: claudeSessionId → internalSessionId
 const sessionMappingCache = new Map<string, string>();
 
+// Permission request store: requestId → PendingPermission
+interface PendingPermission {
+    requestId: string;
+    sessionId: string;
+    toolName: string;
+    toolInput: any;
+    decided: boolean;
+    behavior?: "allow" | "deny";
+    createdAt: number;
+}
+const pendingPermissions = new Map<string, PendingPermission>();
+
 /**
  * Claude transcript 파일 경로 구성
  * Claude는 ~/.claude/projects/{project-hash}/{session-id}.jsonl 에 transcript 저장
@@ -435,6 +447,140 @@ router.post("/user-prompt", async (req, res) => {
     } catch (error) {
         console.error("[HOOKS] UserPromptSubmit error:", error);
         res.json({ success: true }); // Never block Claude
+    }
+});
+
+// POST /api/hooks/permission-request - PermissionRequest hook (권한 요청 등록)
+router.post("/permission-request", async (req, res) => {
+    try {
+        const { sessionId: claudeSessionId, toolName, toolInput } = req.body;
+        console.log("[HOOKS] PermissionRequest received:", { claudeSessionId, toolName });
+
+        if (!claudeSessionId || !toolName) {
+            return res.status(400).json({ error: "Missing required fields" });
+        }
+
+        // 세션 조회 (자동 매핑 포함)
+        const session = resolveInternalSession(claudeSessionId);
+
+        if (!session) {
+            console.log(`[HOOKS] PermissionRequest: No session found for claude_session_id ${claudeSessionId}`);
+            return res.status(404).json({ error: "Session not found" });
+        }
+
+        const internalSessionId = session.id;
+
+        // 오래된 요청 정리 (3분 이상 경과)
+        const now = Date.now();
+        const threeMinutes = 3 * 60 * 1000;
+        for (const [reqId, pending] of pendingPermissions.entries()) {
+            if (now - pending.createdAt > threeMinutes) {
+                pendingPermissions.delete(reqId);
+                console.log(`[HOOKS] PermissionRequest: Cleaned up expired request ${reqId}`);
+            }
+        }
+
+        // 새 요청 등록
+        const requestId = randomUUID();
+        const pendingPermission: PendingPermission = {
+            requestId,
+            sessionId: internalSessionId,
+            toolName,
+            toolInput: toolInput || {},
+            decided: false,
+            createdAt: now,
+        };
+
+        pendingPermissions.set(requestId, pendingPermission);
+
+        // SSE로 프론트엔드에 알림
+        sseManager.broadcastToSession(internalSessionId, {
+            type: "permission_request",
+            sessionId: internalSessionId,
+            requestId,
+            toolName,
+            toolInput: toolInput || {}
+        });
+
+        console.log(`[HOOKS] PermissionRequest: Registered ${requestId} for session ${internalSessionId}`);
+
+        res.json({ requestId });
+    } catch (error) {
+        console.error("[HOOKS] PermissionRequest error:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// GET /api/hooks/permission-poll - 권한 요청 폴링
+router.get("/permission-poll", async (req, res) => {
+    try {
+        const requestId = req.query.requestId as string;
+
+        if (!requestId) {
+            return res.status(400).json({ error: "Missing requestId" });
+        }
+
+        const pending = pendingPermissions.get(requestId);
+
+        if (!pending) {
+            // 요청 없음 - deny로 처리
+            return res.json({ decided: true, behavior: "deny" });
+        }
+
+        if (!pending.decided) {
+            // 아직 결정 안 됨
+            return res.json({ decided: false });
+        }
+
+        // 결정됨 - 반환 후 삭제
+        const behavior = pending.behavior || "deny";
+        pendingPermissions.delete(requestId);
+        console.log(`[HOOKS] PermissionPoll: Returning decision ${behavior} for ${requestId}`);
+
+        res.json({ decided: true, behavior });
+    } catch (error) {
+        console.error("[HOOKS] PermissionPoll error:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// POST /api/hooks/permission-decide - 사용자 결정 처리
+router.post("/permission-decide", async (req, res) => {
+    try {
+        const { requestId, behavior } = req.body;
+
+        if (!requestId || !behavior) {
+            return res.status(400).json({ error: "Missing required fields" });
+        }
+
+        if (behavior !== "allow" && behavior !== "deny") {
+            return res.status(400).json({ error: "Invalid behavior" });
+        }
+
+        const pending = pendingPermissions.get(requestId);
+
+        if (!pending) {
+            return res.status(404).json({ error: "Request not found" });
+        }
+
+        // 결정 저장
+        pending.decided = true;
+        pending.behavior = behavior;
+
+        // SSE로 프론트엔드에 알림
+        sseManager.broadcastToSession(pending.sessionId, {
+            type: "permission_decided",
+            sessionId: pending.sessionId,
+            requestId,
+            behavior
+        });
+
+        console.log(`[HOOKS] PermissionDecide: User decided ${behavior} for ${requestId}`);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("[HOOKS] PermissionDecide error:", error);
+        res.status(500).json({ error: "Internal server error" });
     }
 });
 
