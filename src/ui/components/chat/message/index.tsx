@@ -7,7 +7,6 @@ import QuestionCard from "../questionCard";
 import PermissionCard from "../permissionCard";
 import type {
   Message as MessageType,
-  QuestionAnswer,
   FileChangeType,
 } from "../../../types";
 
@@ -29,13 +28,6 @@ const stripIdeTags = (content: string): string =>
 
 interface MessageProps {
   message: MessageType;
-  isSubmitting?: boolean;
-  onQuestionSubmit?: (
-    sessionId: string,
-    toolUseId: string,
-    answers: QuestionAnswer[],
-  ) => void;
-  onPermissionDecide?: (requestId: string, behavior: "allow" | "deny") => void;
 }
 
 // Markdown 커스텀 컴포넌트 정의
@@ -86,7 +78,7 @@ const markdownComponents = {
 };
 
 const Message = memo(
-  ({ message, isSubmitting = false, onQuestionSubmit, onPermissionDecide }: MessageProps) => {
+  ({ message }: MessageProps) => {
     const isUser = message.role === "user";
 
     // toolUsages에서 파일 변경사항 추출
@@ -101,16 +93,6 @@ const Message = memo(
           type: (t.name === "Write" ? "added" : "modified") as FileChangeType,
         }));
     }, [message.toolUsages]);
-
-    const handleQuestionSubmit = (answers: QuestionAnswer[]) => {
-      if (!message.questionData || !onQuestionSubmit) return;
-
-      onQuestionSubmit(
-        message.sessionId,
-        message.questionData.tool_use_id,
-        answers,
-      );
-    };
 
     return (
       <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -141,11 +123,10 @@ const Message = memo(
                   </div>
                 )}
                 <QuestionCard
+                  sessionId={message.sessionId}
                   questionData={message.questionData}
                   isSubmitted={message.questionSubmitted}
-                  isSubmitting={isSubmitting}
                   questionAnswers={message.questionAnswers}
-                  onSubmit={handleQuestionSubmit}
                 />
               </>
             ) : (
@@ -166,11 +147,6 @@ const Message = memo(
             {!isUser && message.permissionData && (
               <PermissionCard
                 permissionData={message.permissionData}
-                onDecide={(behavior) => {
-                  if (onPermissionDecide) {
-                    onPermissionDecide(message.permissionData!.requestId, behavior);
-                  }
-                }}
               />
             )}
           </div>

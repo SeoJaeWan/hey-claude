@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useOutletContext } from "react-router-dom";
 import { ArrowDown } from "lucide-react";
 import PageHeader from "../../components/commons/pageHeader";
@@ -15,7 +15,6 @@ import {
   useSendMessage,
   useSubmitQuestionAnswer,
 } from "../../hooks/apis/queries/message";
-import type { QuestionAnswer } from "../../types";
 import { useTranslation } from "../../contexts/language";
 
 const noop = () => {};
@@ -45,9 +44,8 @@ const ChatPage = () => {
   // 메시지 전송
   const { isSending, sendMessage, stopSending } = useSendMessage();
 
-  // 답변 제출
-  const { submitAnswer, isSubmitting, stopSubmitting } =
-    useSubmitQuestionAnswer();
+  // 답변 제출 (stopSubmitting만 사용 - turn_complete에서 해제)
+  const { stopSubmitting } = useSubmitQuestionAnswer();
 
   // SSE 연결 (Hooks 이벤트 수신) - turn_complete에서 로딩 해제
   const sseCallbacks = useMemo(
@@ -147,24 +145,6 @@ const ChatPage = () => {
     setImages([]);
   };
 
-  const handleQuestionSubmit = useCallback(
-    (sessionId: string, toolUseId: string, answers: QuestionAnswer[]) => {
-      submitAnswer(sessionId, toolUseId, answers);
-    },
-    [submitAnswer],
-  );
-
-  const handlePermissionDecide = useCallback(
-    async (requestId: string, behavior: "allow" | "deny") => {
-      await fetch("/api/hooks/permission-decide", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId, behavior }),
-      });
-    },
-    [],
-  );
-
   // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
@@ -187,9 +167,6 @@ const ChatPage = () => {
         ref={messageListRef}
         messages={messages}
         isStreaming={isStreaming}
-        isSubmitting={isSubmitting}
-        onQuestionSubmit={handleQuestionSubmit}
-        onPermissionDecide={handlePermissionDecide}
         hasMore={hasNextPage}
         onLoadMore={fetchNextPage}
         isLoadingMore={isFetchingNextPage}

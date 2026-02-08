@@ -4,7 +4,6 @@ import type {PermissionRequestData} from "../../../types";
 
 interface PermissionCardProps {
     permissionData: PermissionRequestData;
-    onDecide: (behavior: "allow" | "deny") => void;
 }
 
 const getToolInputDisplay = (toolName: string, toolInput: any): string => {
@@ -25,23 +24,37 @@ const getToolInputDisplay = (toolName: string, toolInput: any): string => {
     }
 };
 
-const PermissionCard = ({permissionData, onDecide}: PermissionCardProps) => {
+const PermissionCard = ({permissionData}: PermissionCardProps) => {
     const {t} = useTranslation();
-    const {toolName, toolInput, decided, behavior} = permissionData;
+    const {toolName, toolInput, decided, behavior, requestId} = permissionData;
     const [isExpanded, setIsExpanded] = useState(false);
 
     const displayContent = getToolInputDisplay(toolName, toolInput);
     const shouldCollapse = displayContent.split("\n").length > 3;
 
-    const handleAllow = () => {
-        if (!decided) {
-            onDecide("allow");
+    const handleAllow = async () => {
+        if (decided) return;
+        try {
+            await fetch("/api/chat/permission-decide", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({requestId, behavior: "allow"})
+            });
+        } catch (err) {
+            console.error("Permission decide error:", err);
         }
     };
 
-    const handleDeny = () => {
-        if (!decided) {
-            onDecide("deny");
+    const handleDeny = async () => {
+        if (decided) return;
+        try {
+            await fetch("/api/chat/permission-decide", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({requestId, behavior: "deny"})
+            });
+        } catch (err) {
+            console.error("Permission decide error:", err);
         }
     };
 

@@ -8,7 +8,7 @@ import {
 } from "react";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import Message from "../message";
-import type { Message as MessageType, QuestionAnswer } from "../../../types";
+import type { Message as MessageType } from "../../../types";
 
 export interface MessageListHandle {
   scrollToBottom: () => void;
@@ -17,13 +17,6 @@ export interface MessageListHandle {
 interface MessageListProps {
   messages: MessageType[];
   isStreaming?: boolean;
-  isSubmitting?: boolean;
-  onQuestionSubmit?: (
-    sessionId: string,
-    toolUseId: string,
-    answers: QuestionAnswer[],
-  ) => void;
-  onPermissionDecide?: (requestId: string, behavior: "allow" | "deny") => void;
   hasMore?: boolean;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
@@ -35,9 +28,6 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
     {
       messages,
       isStreaming = false,
-      isSubmitting = false,
-      onQuestionSubmit,
-      onPermissionDecide,
       hasMore = false,
       onLoadMore,
       isLoadingMore = false,
@@ -105,9 +95,6 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
               <Message
                 key={message.id}
                 message={message}
-                isSubmitting={isSubmitting}
-                onQuestionSubmit={onQuestionSubmit}
-                onPermissionDecide={onPermissionDecide}
               />
             </div>
           )}
