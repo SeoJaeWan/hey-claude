@@ -191,5 +191,16 @@
         "waiting": "Waiting for your decision...",
         "showMore": "Show more",
         "showLess": "Show less"
+    },
+    "question": {
+        "other": "Other",
+        "otherPlaceholder": "Type your answer...",
+        "answeredElsewhere": "Answered elsewhere",
+        "submitted": "Submitted",
+        "selectPrompt": "Click to select your answer",
+        "multiSelect": "(Multiple selection)",
+        "submit": "Submit",
+        "submitting": "Submitting...",
+        "allRequired": "Please answer all questions"
     }
 }

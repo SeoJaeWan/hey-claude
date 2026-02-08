@@ -191,5 +191,16 @@
         "waiting": "결정을 기다리는 중...",
         "showMore": "더 보기",
         "showLess": "접기"
+    },
+    "question": {
+        "other": "기타",
+        "otherPlaceholder": "답변을 입력하세요...",
+        "answeredElsewhere": "다른 곳에서 답변됨",
+        "submitted": "제출 완료",
+        "selectPrompt": "선택지를 클릭하여 답변을 선택하세요",
+        "multiSelect": "(복수 선택 가능)",
+        "submit": "답변 제출",
+        "submitting": "제출 중...",
+        "allRequired": "모든 질문에 답변해주세요"
     }
 }

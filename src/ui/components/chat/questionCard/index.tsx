@@ -1,16 +1,19 @@
 import {HelpCircle, CheckCircle2, Circle} from 'lucide-react';
 import {useState} from 'react';
 import type {QuestionData, QuestionAnswer} from '../../../types';
+import {useTranslation} from '../../../contexts/language';
 
 interface QuestionCardProps {
     questionData: QuestionData;
     isSubmitted?: boolean;
     isSubmitting?: boolean;
+    questionAnswers?: QuestionAnswer[];
     onSubmit?: (answers: QuestionAnswer[]) => void;
 }
 
-const QuestionCard = ({questionData, isSubmitted = false, isSubmitting = false, onSubmit}: QuestionCardProps) => {
+const QuestionCard = ({questionData, isSubmitted = false, isSubmitting = false, questionAnswers, onSubmit}: QuestionCardProps) => {
     const {questions} = questionData;
+    const {t} = useTranslation();
 
     // 각 질문별 선택 상태 관리
     const [selections, setSelections] = useState<Record<number, number[]>>(() => {
@@ -20,6 +23,10 @@ const QuestionCard = ({questionData, isSubmitted = false, isSubmitting = false, 
         });
         return initial;
     });
+
+    // "Other" 선택 및 입력 상태
+    const [otherSelected, setOtherSelected] = useState<Record<number, boolean>>({});
+    const [otherText, setOtherText] = useState<Record<number, string>>({});
 
 
     const handleOptionClick = (questionIdx: number, optionIdx: number, multiSelect: boolean) => {
@@ -38,6 +45,24 @@ const QuestionCard = ({questionData, isSubmitted = false, isSubmitting = false, 
                 return {...prev, [questionIdx]: [optionIdx]};
             }
         });
+
+        // 일반 옵션 선택 시 Other 선택 해제 (단일 선택 모드만)
+        if (!multiSelect && otherSelected[questionIdx]) {
+            setOtherSelected(prev => ({...prev, [questionIdx]: false}));
+        }
+    };
+
+    const handleOtherClick = (questionIdx: number, multiSelect: boolean) => {
+        setOtherSelected(prev => {
+            const newSelected = !prev[questionIdx];
+
+            // 단일 선택 모드: Other 선택 시 기존 선택 해제
+            if (!multiSelect && newSelected) {
+                setSelections(prevSel => ({...prevSel, [questionIdx]: []}));
+            }
+
+            return {...prev, [questionIdx]: newSelected};
+        });
     };
 
     const isSelected = (questionIdx: number, optionIdx: number) => {
@@ -46,113 +71,199 @@ const QuestionCard = ({questionData, isSubmitted = false, isSubmitting = false, 
 
     // 유효성 검증: 모든 질문에 답변했는지
     const isValid = questions.every((_, idx) => {
-        return selections[idx] && selections[idx].length > 0;
+        const hasSelection = selections[idx] && selections[idx].length > 0;
+        const hasOtherWithText = otherSelected[idx] && otherText[idx]?.trim();
+        return hasSelection || hasOtherWithText;
     });
 
     // 제출 핸들러
     const handleSubmit = () => {
         if (!isValid || isSubmitting || isSubmitted) return;
 
-        // selections → QuestionAnswer[] 변환
-        const answers: QuestionAnswer[] = questions.map((q, idx) => ({
-            questionIndex: idx,
-            question: q.question,
-            selectedOptions: selections[idx].map(optIdx => q.options[optIdx].label)
-        }));
+        // selections → QuestionAnswer[] 변환 (Other 입력 포함)
+        const answers: QuestionAnswer[] = questions.map((q, idx) => {
+            const selectedLabels = selections[idx]?.map(optIdx => q.options[optIdx].label) || [];
+
+            // Other 선택 시 텍스트 추가
+            if (otherSelected[idx] && otherText[idx]?.trim()) {
+                selectedLabels.push(otherText[idx].trim());
+            }
+
+            return {
+                questionIndex: idx,
+                question: q.question,
+                selectedOptions: selectedLabels
+            };
+        });
 
         onSubmit?.(answers);
     };
 
     return (
         <div className="question-card bg-accent-primary/5 border border-accent-primary/20 rounded-lg p-4 my-2 space-y-4">
-            {/* 안내 메시지 */}
-            <div className="flex items-center gap-2 text-xs text-text-secondary">
-                <HelpCircle className="w-4 h-4 text-accent-primary" />
-                <span>선택지를 클릭하여 답변을 선택하세요</span>
-            </div>
-
-            {/* 각 질문 렌더링 */}
-            {questions.map((q, qIdx) => (
-                <div key={qIdx} className="space-y-2">
-                    {/* 질문 헤더 */}
-                    <div className="flex items-center gap-2">
-                        <span className="inline-block px-2 py-0.5 text-xs font-medium bg-accent-primary/10 text-accent-primary rounded">
-                            {q.header}
-                        </span>
-                        {q.multiSelect && (
-                            <span className="text-xs text-text-secondary">(복수 선택 가능)</span>
-                        )}
+            {/* Submitted 상태: 답변 결과 표시 */}
+            {isSubmitted && questionAnswers ? (
+                <>
+                    <div className="flex items-center gap-2 text-xs text-text-secondary">
+                        <CheckCircle2 className="w-4 h-4 text-accent-primary" />
+                        <span>{t('question.submitted')}</span>
+                    </div>
+                    <div className="space-y-3">
+                        {questionAnswers.map((answer, idx) => (
+                            <div key={idx}>
+                                <span className="inline-block px-2 py-0.5 text-xs font-medium bg-accent-primary/10 text-accent-primary rounded">
+                                    {questions[idx]?.header}
+                                </span>
+                                <p className="text-sm font-medium text-text-primary mt-1">
+                                    {questions[idx]?.question}
+                                </p>
+                                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                    {answer.selectedOptions.map((opt, oIdx) => (
+                                        <span
+                                            key={oIdx}
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-accent-primary/10 text-accent-primary rounded"
+                                        >
+                                            <CheckCircle2 className="w-3 h-3" />
+                                            {opt}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
+            ) : isSubmitted ? (
+                <div className="flex items-center gap-2 text-xs text-text-tertiary">
+                    <HelpCircle className="w-4 h-4" />
+                    <span>{t('question.answeredElsewhere')}</span>
+                </div>
+            ) : (
+                <>
+                    {/* 안내 메시지 */}
+                    <div className="flex items-center gap-2 text-xs text-text-secondary">
+                        <HelpCircle className="w-4 h-4 text-accent-primary" />
+                        <span>{t('question.selectPrompt')}</span>
                     </div>
 
-                    {/* 질문 텍스트 */}
-                    <p className="text-sm font-medium text-text-primary">
-                        {q.question}
-                    </p>
+                    {/* 각 질문 렌더링 */}
+                    {questions.map((q, qIdx) => (
+                        <div key={qIdx} className="space-y-2">
+                            {/* 질문 헤더 */}
+                            <div className="flex items-center gap-2">
+                                <span className="inline-block px-2 py-0.5 text-xs font-medium bg-accent-primary/10 text-accent-primary rounded">
+                                    {q.header}
+                                </span>
+                                {q.multiSelect && (
+                                    <span className="text-xs text-text-secondary">{t('question.multiSelect')}</span>
+                                )}
+                            </div>
 
-                    {/* 선택지 목록 */}
-                    <div className="space-y-2 ml-2">
-                        {q.options.map((option, oIdx) => {
-                            const selected = isSelected(qIdx, oIdx);
-                            return (
+                            {/* 질문 텍스트 */}
+                            <p className="text-sm font-medium text-text-primary">
+                                {q.question}
+                            </p>
+
+                            {/* 선택지 목록 */}
+                            <div className="space-y-2 ml-2">
+                                {q.options.map((option, oIdx) => {
+                                    const selected = isSelected(qIdx, oIdx);
+                                    return (
+                                        <button
+                                            key={oIdx}
+                                            onClick={() => handleOptionClick(qIdx, oIdx, q.multiSelect)}
+                                            className={`
+                                                w-full text-left p-3 rounded-lg border transition-all
+                                                ${selected
+                                                    ? 'bg-accent-primary/10 border-accent-primary/50 shadow-sm'
+                                                    : 'bg-background-secondary border-border-default hover:border-accent-primary/30 hover:bg-accent-primary/5'
+                                                }
+                                            `}
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <div className="mt-0.5 flex-shrink-0">
+                                                    {selected ? (
+                                                        <CheckCircle2 className="w-5 h-5 text-accent-primary" />
+                                                    ) : (
+                                                        <Circle className="w-5 h-5 text-text-tertiary" />
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`text-sm font-medium ${selected ? 'text-accent-primary' : 'text-text-primary'}`}>
+                                                        {option.label}
+                                                    </div>
+                                                    <div className="text-xs text-text-secondary mt-1">
+                                                        {option.description}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+
+                                {/* "Other" 옵션 */}
                                 <button
-                                    key={oIdx}
-                                    onClick={() => handleOptionClick(qIdx, oIdx, q.multiSelect)}
+                                    onClick={() => handleOtherClick(qIdx, q.multiSelect)}
                                     className={`
                                         w-full text-left p-3 rounded-lg border transition-all
-                                        ${selected
+                                        ${otherSelected[qIdx]
                                             ? 'bg-accent-primary/10 border-accent-primary/50 shadow-sm'
                                             : 'bg-background-secondary border-border-default hover:border-accent-primary/30 hover:bg-accent-primary/5'
                                         }
                                     `}
                                 >
                                     <div className="flex items-start gap-3">
-                                        {/* 선택 아이콘 */}
                                         <div className="mt-0.5 flex-shrink-0">
-                                            {selected ? (
+                                            {otherSelected[qIdx] ? (
                                                 <CheckCircle2 className="w-5 h-5 text-accent-primary" />
                                             ) : (
                                                 <Circle className="w-5 h-5 text-text-tertiary" />
                                             )}
                                         </div>
-
-                                        {/* 옵션 내용 */}
                                         <div className="flex-1 min-w-0">
-                                            <div className={`text-sm font-medium ${selected ? 'text-accent-primary' : 'text-text-primary'}`}>
-                                                {option.label}
-                                            </div>
-                                            <div className="text-xs text-text-secondary mt-1">
-                                                {option.description}
+                                            <div className={`text-sm font-medium ${otherSelected[qIdx] ? 'text-accent-primary' : 'text-text-primary'}`}>
+                                                {t('question.other')}
                                             </div>
                                         </div>
                                     </div>
                                 </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            ))}
 
-            {/* 제출 버튼 */}
-            <div className="pt-2 border-t border-border-default">
-                <button
-                    onClick={handleSubmit}
-                    disabled={!isValid || isSubmitting || isSubmitted}
-                    className={`
-                        w-full px-4 py-2 rounded-lg text-sm font-medium transition-all
-                        ${isValid && !isSubmitting && !isSubmitted
-                            ? 'bg-accent-primary hover:bg-accent-primary/90 text-white cursor-pointer'
-                            : 'bg-accent-primary/30 text-text-secondary cursor-not-allowed'
-                        }
-                    `}
-                >
-                    {isSubmitting ? "제출 중..." : isSubmitted ? "제출 완료" : "답변 제출"}
-                </button>
-                {!isValid && !isSubmitted && (
-                    <p className="text-xs text-text-tertiary text-center mt-2">
-                        모든 질문에 답변해주세요
-                    </p>
-                )}
-            </div>
+                                {/* Other 텍스트 입력 */}
+                                {otherSelected[qIdx] && (
+                                    <textarea
+                                        value={otherText[qIdx] || ''}
+                                        onChange={(e) => setOtherText(prev => ({...prev, [qIdx]: e.target.value}))}
+                                        placeholder={t('question.otherPlaceholder')}
+                                        className="w-full mt-2 p-2 text-sm rounded-lg border border-border-default bg-background-secondary text-text-primary placeholder-text-tertiary resize-none focus:outline-none focus:ring-1 focus:ring-accent-primary/50"
+                                        rows={3}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    ))}
+
+                    {/* 제출 버튼 */}
+                    <div className="pt-2 border-t border-border-default">
+                        <button
+                            onClick={handleSubmit}
+                            disabled={!isValid || isSubmitting || isSubmitted}
+                            className={`
+                                w-full px-4 py-2 rounded-lg text-sm font-medium transition-all
+                                ${isValid && !isSubmitting && !isSubmitted
+                                    ? 'bg-accent-primary hover:bg-accent-primary/90 text-white cursor-pointer'
+                                    : 'bg-accent-primary/30 text-text-secondary cursor-not-allowed'
+                                }
+                            `}
+                        >
+                            {isSubmitting ? t('question.submitting') : isSubmitted ? t('question.submitted') : t('question.submit')}
+                        </button>
+                        {!isValid && !isSubmitted && (
+                            <p className="text-xs text-text-tertiary text-center mt-2">
+                                {t('question.allRequired')}
+                            </p>
+                        )}
+                    </div>
+                </>
+            )}
         </div>
     );
 };
