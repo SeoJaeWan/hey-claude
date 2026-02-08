@@ -187,6 +187,7 @@
         "deny": "거부",
         "allowed": "허용됨",
         "denied": "거부됨",
+        "expired": "만료됨",
         "waiting": "결정을 기다리는 중...",
         "showMore": "더 보기",
         "showLess": "접기"

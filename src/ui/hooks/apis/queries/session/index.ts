@@ -361,12 +361,104 @@ export const useSSEConnection = (
                     };
                 });
             }
+            // permission_request 처리 (PermissionRequest Hook)
+            else if (data.type === "permission_request") {
+                const permMsgId = `permission-${data.requestId}`;
+                console.log("[SSE] permission_request:", data.requestId);
+
+                queryClient.setQueryData(["messages", sessionId], (old: any) => {
+                    if (!old) return old;
+                    const lastPageIndex = old.pages.length - 1;
+                    const rawMsg = {
+                        id: permMsgId,
+                        session_id: sessionId,
+                        role: "assistant",
+                        content: "",
+                        timestamp: new Date().toISOString(),
+                        permission_data: {
+                            requestId: data.requestId,
+                            toolName: data.toolName,
+                            toolInput: data.toolInput,
+                            decided: false
+                        }
+                    };
+
+                    const isDuplicate = old.pages.some((page: any) =>
+                        page.data.some((m: any) => m.id === permMsgId)
+                    );
+                    if (isDuplicate) return old;
+
+                    return {
+                        ...old,
+                        pages: old.pages.map((page: any, i: number) =>
+                            i === lastPageIndex
+                                ? { ...page, data: [...page.data, rawMsg] }
+                                : page
+                        ),
+                    };
+                });
+            }
+            // permission_decided 처리 (사용자 결정 또는 만료)
+            else if (data.type === "permission_decided") {
+                const permMsgId = `permission-${data.requestId}`;
+                console.log("[SSE] permission_decided:", data.requestId, data.behavior);
+
+                queryClient.setQueryData(["messages", sessionId], (old: any) => {
+                    if (!old) return old;
+                    return {
+                        ...old,
+                        pages: old.pages.map((page: any) => ({
+                            ...page,
+                            data: page.data.map((msg: any) => {
+                                if (msg.id === permMsgId && msg.permission_data) {
+                                    return {
+                                        ...msg,
+                                        permission_data: {
+                                            ...msg.permission_data,
+                                            decided: true,
+                                            behavior: data.behavior || null
+                                        }
+                                    };
+                                }
+                                return msg;
+                            })
+                        }))
+                    };
+                });
+            }
             // turn_complete 처리 (Stop Hook → 로딩 해제)
             else if (data.type === "turn_complete") {
                 console.log("[SSE] turn_complete");
-
-                // 콜백 호출 (로딩 해제)
                 callbacksRef.current?.onTurnComplete?.();
+
+                // Stale UI cleanup: mark pending questions as submitted and pending permissions as expired
+                queryClient.setQueryData(["messages", sessionId], (old: any) => {
+                    if (!old) return old;
+                    let hasChanges = false;
+                    const updated = {
+                        ...old,
+                        pages: old.pages.map((page: any) => ({
+                            ...page,
+                            data: page.data.map((msg: any) => {
+                                // Pending question → submitted
+                                if (msg.isQuestion && msg.questionData && !msg.questionSubmitted) {
+                                    hasChanges = true;
+                                    return { ...msg, questionSubmitted: true };
+                                }
+                                // Pending permission → expired
+                                if (msg.permission_data && !msg.permission_data.decided) {
+                                    hasChanges = true;
+                                    return {
+                                        ...msg,
+                                        permission_data: { ...msg.permission_data, decided: true }
+                                    };
+                                }
+                                return msg;
+                            })
+                        }))
+                    };
+                    return hasChanges ? updated : old;
+                });
             }
             // loading_start 처리 (메시지 전송 시)
             else if (data.type === "loading_start") {

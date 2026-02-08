@@ -187,6 +187,7 @@
         "deny": "Deny",
         "allowed": "Allowed",
         "denied": "Denied",
+        "expired": "Expired",
         "waiting": "Waiting for your decision...",
         "showMore": "Show more",
         "showLess": "Show less"
