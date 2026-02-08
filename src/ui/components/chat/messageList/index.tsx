@@ -52,6 +52,13 @@ const MessageList = ({
     }
   }, [hasMore, isLoadingMore, onLoadMore]);
 
+  console.log(
+    isStreaming,
+    messages.length > 0,
+    messages[messages.length - 1],
+    messages[messages.length - 1].role !== "assistant",
+  );
+
   return (
     <div className="flex-1 overflow-hidden">
       {messages.length === 0 ? (
@@ -71,24 +78,16 @@ const MessageList = ({
           data={messages}
           startReached={handleStartReached}
           followOutput="smooth"
-          itemContent={(index: number, message: MessageType) => {
-            const msgIndex = index - firstItemIndex;
-            const isLastAssistant =
-              msgIndex === messages.length - 1 && message.role === "assistant";
-            const showStreaming = isLastAssistant && isStreaming;
-
-            return (
-              <div className="max-w-3xl mx-auto py-1.5">
-                <Message
-                  key={message.id}
-                  message={message}
-                  isStreaming={showStreaming}
-                  isSubmitting={isSubmitting}
-                  onQuestionSubmit={onQuestionSubmit}
-                />
-              </div>
-            );
-          }}
+          itemContent={(_, message: MessageType) => (
+            <div className="max-w-3xl mx-auto py-1.5">
+              <Message
+                key={message.id}
+                message={message}
+                isSubmitting={isSubmitting}
+                onQuestionSubmit={onQuestionSubmit}
+              />
+            </div>
+          )}
           components={{
             Header: () =>
               isLoadingMore ? (
@@ -99,10 +98,8 @@ const MessageList = ({
                 </div>
               ) : null,
             Footer: () =>
-              isStreaming &&
-              messages.length > 0 &&
-              messages[messages.length - 1].role !== "assistant" ? (
-                <div className="max-w-3xl mx-auto px-6 py-3">
+              isStreaming ? (
+                <div className="max-w-3xl mx-auto py-3 pb-36">
                   <div className="flex justify-start">
                     <div className="max-w-[85%]">
                       <div className="px-4 py-3 rounded-2xl bg-bubble-assistant text-text-primary border border-border-default">

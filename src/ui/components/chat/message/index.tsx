@@ -10,9 +10,24 @@ import type {
   FileChangeType,
 } from "../../../types";
 
+const formatTime = (dateStr: string): string => {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+};
+
+// IDE가 주입하는 메타데이터 태그 제거
+const stripIdeTags = (content: string): string =>
+  content
+    .replace(/<ide_opened_file>[\s\S]*?<\/ide_opened_file>/g, "")
+    .replace(/<ide_selection>[\s\S]*?<\/ide_selection>/g, "")
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
+    .replace(/<command-message>[\s\S]*?<\/command-message>/g, "")
+    .replace(/<command-name>[\s\S]*?<\/command-name>/g, "")
+    .trim();
+
 interface MessageProps {
   message: MessageType;
-  isStreaming?: boolean;
   isSubmitting?: boolean;
   onQuestionSubmit?: (
     sessionId: string,
@@ -69,14 +84,8 @@ const markdownComponents = {
 };
 
 const Message = memo(
-  ({
-    message,
-    isStreaming = false,
-    isSubmitting = false,
-    onQuestionSubmit,
-  }: MessageProps) => {
+  ({ message, isSubmitting = false, onQuestionSubmit }: MessageProps) => {
     const isUser = message.role === "user";
-    const showCursor = !isUser && isStreaming;
 
     // toolUsages에서 파일 변경사항 추출
     const toolFileChanges = useMemo(() => {
@@ -125,7 +134,7 @@ const Message = memo(
                       rehypePlugins={[rehypeHighlight]}
                       components={markdownComponents}
                     >
-                      {message.content}
+                      {stripIdeTags(message.content)}
                     </ReactMarkdown>
                   </div>
                 )}
@@ -138,14 +147,14 @@ const Message = memo(
               </>
             ) : (
               <div
-                className={`text-base leading-relaxed break-words markdown-content ${showCursor ? "streaming-cursor" : ""}`}
+                className={`text-base leading-relaxed break-words markdown-content`}
               >
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeHighlight]}
                   components={markdownComponents}
                 >
-                  {message.content}
+                  {stripIdeTags(message.content)}
                 </ReactMarkdown>
               </div>
             )}
@@ -171,6 +180,15 @@ const Message = memo(
           {/* 도구 사용에 의한 파일 변경사항 (toolUsages에서 추출) */}
           {!isUser && toolFileChanges.length > 0 && !message.changes && (
             <FileChangesCard changes={toolFileChanges} />
+          )}
+
+          {/* 메시지 시간 */}
+          {message.createdAt && (
+            <p
+              className={`text-xs text-text-tertiary mt-1 px-1 ${isUser ? "text-right" : "text-left"}`}
+            >
+              {formatTime(message.createdAt)}
+            </p>
           )}
         </div>
       </div>
