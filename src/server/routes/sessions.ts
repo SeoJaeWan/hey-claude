@@ -87,7 +87,7 @@ router.post("/", async (req, res) => {
     }
 });
 
-// GET /api/sessions/:id - 세션 조회 (메시지 포함)
+// GET /api/sessions/:id - 세션 조회 (메시지 제외)
 router.get("/:id", async (req, res) => {
     try {
         const { id } = req.params;
@@ -104,9 +104,6 @@ router.get("/:id", async (req, res) => {
             });
         }
 
-        // 세션의 메시지 조회
-        const messages = db.prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC").all(id);
-
         // 실시간 상태 포함
         const status = sessionStatusManager.getStatus(id);
 
@@ -115,7 +112,6 @@ router.get("/:id", async (req, res) => {
                 ...session,
                 currentStatus: status?.status || "idle",
                 backgroundTasksCount: status?.backgroundTasksCount || 0,
-                messages,
             },
         });
     } catch (error) {
@@ -123,6 +119,48 @@ router.get("/:id", async (req, res) => {
         res.status(500).json({
             error: {
                 code: "SESSION_GET_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error",
+            },
+        });
+    }
+});
+
+// GET /api/sessions/:id/messages - 메시지 페이지네이션
+router.get("/:id/messages", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+        const before = req.query.before as string | undefined;
+
+        const db = getDatabase();
+
+        let messages;
+        if (before) {
+            // 이전 메시지 로드 (커서 기반)
+            messages = db.prepare(
+                "SELECT * FROM messages WHERE session_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?"
+            ).all(id, before, limit);
+        } else {
+            // 최신 메시지 로드 (첫 요청)
+            messages = db.prepare(
+                "SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?"
+            ).all(id, limit);
+        }
+
+        // DESC로 가져왔으므로 ASC 순서로 뒤집기
+        messages.reverse();
+
+        const hasMore = messages.length === limit;
+
+        res.json({
+            data: messages,
+            hasMore,
+        });
+    } catch (error) {
+        console.error("Messages fetch failed:", error);
+        res.status(500).json({
+            error: {
+                code: "MESSAGES_FETCH_FAILED",
                 message: error instanceof Error ? error.message : "Unknown error",
             },
         });
