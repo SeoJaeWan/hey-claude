@@ -1,4 +1,5 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useCallback, useState, useEffect } from "react";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import Message from "../message";
 import type { Message as MessageType, QuestionAnswer } from "../../../types";
 
@@ -25,55 +26,37 @@ const MessageList = ({
   onLoadMore,
   isLoadingMore = false,
 }: MessageListProps) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [isUserScrolling, setIsUserScrolling] = useState(false);
-  const userScrollTimeoutRef = useRef<NodeJS.Timeout>();
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
 
-  // 스크롤 이벤트 핸들러
-  const handleScroll = () => {
-    const container = scrollRef.current;
-    if (!container) return;
+  // firstItemIndex: 이전 메시지 prepend 시 스크롤 유지를 위해 사용
+  // 초기값을 큰 수로 설정하고, 메시지가 prepend될수록 감소
+  const START_INDEX = 100000;
+  const [firstItemIndex, setFirstItemIndex] = useState(START_INDEX);
 
-    // 하단 근처인지 확인 (100px 임계값)
-    const isNearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
-      100;
-
-    if (!isNearBottom) {
-      setIsUserScrolling(true);
-      clearTimeout(userScrollTimeoutRef.current);
-    } else {
-      setIsUserScrolling(false);
+  // 메시지 수 변경 추적 (prepend 감지)
+  const prevCountRef = useRef(messages.length);
+  useEffect(() => {
+    const prevCount = prevCountRef.current;
+    const newCount = messages.length;
+    if (newCount > prevCount) {
+      const added = newCount - prevCount;
+      // 새 메시지가 앞에 추가된 경우 (스크롤 업으로 이전 메시지 로드)
+      // firstItemIndex를 줄여서 스크롤 위치 유지
+      setFirstItemIndex((prev) => prev - added);
     }
+    prevCountRef.current = newCount;
+  }, [messages.length]);
 
-    // 상단 도달 시 이전 메시지 로드
-    if (container.scrollTop < 50 && hasMore && !isLoadingMore && onLoadMore) {
+  // 상단 도달 시 이전 메시지 로드
+  const handleStartReached = useCallback(() => {
+    if (hasMore && !isLoadingMore && onLoadMore) {
       onLoadMore();
     }
-  };
-
-  // 메시지 변경 시 자동 스크롤
-  useEffect(() => {
-    const container = scrollRef.current;
-    if (!container || isUserScrolling) return;
-
-    container.scrollTop = container.scrollHeight;
-  }, [messages, isStreaming, isUserScrolling]);
-
-  // cleanup: 컴포넌트 unmount 시 timeout clear
-  useEffect(() => {
-    return () => {
-      clearTimeout(userScrollTimeoutRef.current);
-    };
-  }, []);
+  }, [hasMore, isLoadingMore, onLoadMore]);
 
   return (
-    <div
-      ref={scrollRef}
-      className="flex-1 overflow-y-auto px-6 py-6 pb-36"
-      onScroll={handleScroll}
-    >
-      <div className="max-w-3xl mx-auto flex flex-col gap-6">
+    <div className="flex-1 overflow-hidden px-6 py-6 pb-36">
+      <div className="max-w-3xl mx-auto h-full">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -84,43 +67,59 @@ const MessageList = ({
             </div>
           </div>
         ) : (
-          <>
-            {isLoadingMore && (
-              <div className="text-center py-2">
-                <span className="text-text-tertiary text-sm">이전 메시지 로딩 중...</span>
-              </div>
-            )}
-            {messages.map((message, index) => {
-              // 마지막 assistant 메시지에만 isStreaming 전달
+          <Virtuoso
+            ref={virtuosoRef}
+            firstItemIndex={firstItemIndex}
+            initialTopMostItemIndex={messages.length - 1}
+            data={messages}
+            startReached={handleStartReached}
+            followOutput="smooth"
+            itemContent={(index: number, message: MessageType) => {
+              // index는 firstItemIndex부터 시작하는 절대 인덱스
+              const msgIndex = index - firstItemIndex;
               const isLastAssistant =
-                index === messages.length - 1 && message.role === "assistant";
+                msgIndex === messages.length - 1 && message.role === "assistant";
               const showStreaming = isLastAssistant && isStreaming;
 
               return (
-                <Message
-                  key={message.id}
-                  message={message}
-                  isStreaming={showStreaming}
-                  isSubmitting={isSubmitting}
-                  onQuestionSubmit={onQuestionSubmit}
-                />
+                <div className="py-3">
+                  <Message
+                    key={message.id}
+                    message={message}
+                    isStreaming={showStreaming}
+                    isSubmitting={isSubmitting}
+                    onQuestionSubmit={onQuestionSubmit}
+                  />
+                </div>
               );
-            })}
-            {/* thinking indicator: assistant 응답 대기 중 */}
-            {isStreaming && messages.length > 0 && messages[messages.length - 1].role !== "assistant" && (
-              <div className="flex justify-start">
-                <div className="max-w-[85%]">
-                  <div className="px-4 py-3 rounded-2xl bg-bubble-assistant text-text-primary border border-border-default">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:0ms]" />
-                      <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:150ms]" />
-                      <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:300ms]" />
+            }}
+            components={{
+              Header: () =>
+                isLoadingMore ? (
+                  <div className="text-center py-2">
+                    <span className="text-text-tertiary text-sm">
+                      이전 메시지 로딩 중...
+                    </span>
+                  </div>
+                ) : null,
+              Footer: () =>
+                isStreaming &&
+                messages.length > 0 &&
+                messages[messages.length - 1].role !== "assistant" ? (
+                  <div className="flex justify-start py-3">
+                    <div className="max-w-[85%]">
+                      <div className="px-4 py-3 rounded-2xl bg-bubble-assistant text-text-primary border border-border-default">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:0ms]" />
+                          <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:150ms]" />
+                          <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce [animation-delay:300ms]" />
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            )}
-          </>
+                ) : null,
+            }}
+          />
         )}
       </div>
     </div>

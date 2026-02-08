@@ -19,7 +19,6 @@ import { useTranslation } from "../../contexts/language";
 const noop = () => {};
 
 const ChatPage = () => {
-  console.log("render");
   const { sessionId } = useParams<{ sessionId: string }>();
   const { onMenuClick } = useOutletContext<{ onMenuClick: () => void }>();
   const { t } = useTranslation();
@@ -29,7 +28,12 @@ const ChatPage = () => {
   const sessionName = session?.name || `Session ${sessionId}`;
 
   // 메시지 목록 조회
-  const { data: messagesData, hasNextPage, fetchNextPage, isFetchingNextPage } = useMessagesQuery(sessionId);
+  const {
+    data: messagesData,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useMessagesQuery(sessionId);
   const messages = messagesData?.messages ?? [];
 
   // 메시지 전송
