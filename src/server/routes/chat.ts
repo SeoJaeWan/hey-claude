@@ -17,6 +17,7 @@ import { getDatabase } from "../services/database.js";
 import sessionStatusManager from "../services/sessionStatusManager.js";
 import claudeProcessManager from "../services/claudeProcessManager.js";
 import sseManager from "../services/sseManager.js";
+import { pendingPermissions } from "./hooks.js";
 
 const router: RouterType = Router();
 
@@ -279,12 +280,6 @@ router.post("/tool-result", async (req, res) => {
         const success = claudeProcessManager.writeAnswer(sessionId, answerText);
 
         if (success) {
-            // 6. DB에서 해당 질문을 제출 완료로 표시
-            db.prepare(`
-                UPDATE messages SET question_submitted = 1
-                WHERE session_id = ? AND question_data IS NOT NULL AND question_submitted IS NULL
-            `).run(sessionId);
-
             console.log("[TOOL RESULT] Answer sent to PTY stdin");
             res.json({ success: true });
         } else {
@@ -304,6 +299,49 @@ router.post("/tool-result", async (req, res) => {
                 message: error instanceof Error ? error.message : "Unknown error"
             }
         });
+    }
+});
+
+// POST /api/chat/permission-decide - 사용자 권한 결정 처리
+router.post("/permission-decide", async (req, res) => {
+    try {
+        const { requestId, behavior } = req.body;
+
+        if (!requestId || !behavior) {
+            res.status(400).json({ error: { code: "INVALID_REQUEST", message: "requestId and behavior are required" } });
+            return;
+        }
+
+        if (behavior !== "allow" && behavior !== "deny") {
+            res.status(400).json({ error: { code: "INVALID_BEHAVIOR", message: "behavior must be 'allow' or 'deny'" } });
+            return;
+        }
+
+        const pending = pendingPermissions.get(requestId);
+
+        if (!pending) {
+            res.status(404).json({ error: { code: "REQUEST_NOT_FOUND", message: "Permission request not found" } });
+            return;
+        }
+
+        // 결정 저장
+        pending.decided = true;
+        pending.behavior = behavior;
+
+        // SSE로 프론트엔드에 알림
+        sseManager.broadcastToSession(pending.sessionId, {
+            type: "permission_decided",
+            sessionId: pending.sessionId,
+            requestId,
+            behavior
+        });
+
+        console.log(`[CHAT] PermissionDecide: User decided ${behavior} for ${requestId}`);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.log("[CHAT] PermissionDecide error:", error);
+        res.status(500).json({ error: { code: "PERMISSION_DECIDE_FAILED", message: error instanceof Error ? error.message : "Unknown error" } });
     }
 });
 

@@ -17,7 +17,7 @@ const router: RouterType = Router();
 const sessionMappingCache = new Map<string, string>();
 
 // Permission request store: requestId → PendingPermission
-interface PendingPermission {
+export interface PendingPermission {
     requestId: string;
     sessionId: string;
     toolName: string;
@@ -26,7 +26,7 @@ interface PendingPermission {
     behavior?: "allow" | "deny";
     createdAt: number;
 }
-const pendingPermissions = new Map<string, PendingPermission>();
+export const pendingPermissions = new Map<string, PendingPermission>();
 
 /**
  * Claude transcript 파일 경로 구성
@@ -90,6 +90,33 @@ const resolveInternalSession = (claudeSessionId: string): { id: string } | undef
     }
 
     return undefined;
+};
+
+/**
+ * AskUserQuestion 응답 파싱: tool_input의 options와 tool_response 문자열 매칭
+ */
+const parseQuestionAnswers = (toolInput: any, toolResponse: any) => {
+    const questions = toolInput?.questions || [];
+    const responseText = typeof toolResponse === 'string'
+        ? toolResponse
+        : JSON.stringify(toolResponse || '');
+
+    return questions.map((q: any, idx: number) => {
+        const selectedOptions: string[] = [];
+
+        for (const opt of (q.options || [])) {
+            if (responseText.includes(opt.label)) {
+                selectedOptions.push(opt.label);
+            }
+        }
+
+        // 매칭 안 되면 전체 응답을 "Other" 답변으로 처리
+        if (selectedOptions.length === 0 && responseText.trim()) {
+            selectedOptions.push(responseText.trim());
+        }
+
+        return { questionIndex: idx, question: q.question, selectedOptions };
+    });
 };
 
 // POST /api/hooks/session - SessionStart Hook
@@ -240,6 +267,21 @@ router.post("/tool-use", async (req, res) => {
                 toolUseId: toolUseId,
                 questions: tool_input.questions
             });
+        }
+
+        // PostToolUse: AskUserQuestion 완료 → question_answered SSE
+        if ((type === 'post' || !type) && tool_name === 'AskUserQuestion') {
+            console.log("[HOOKS] AskUserQuestion PostToolUse: Broadcasting answer via SSE");
+
+            const answers = parseQuestionAnswers(tool_input, tool_response);
+
+            sseManager.broadcastToSession(internalSessionId, {
+                type: "question_answered",
+                sessionId: internalSessionId,
+                answers
+            });
+
+            return res.json({ continue: true, suppressOutput: true });
         }
 
         // PostToolUse: 도구 사용 내역 저장
