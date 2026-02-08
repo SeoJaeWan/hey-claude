@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -20,7 +20,6 @@ interface MessageProps {
 // Markdown 커스텀 컴포넌트 정의
 const markdownComponents = {
   code({ inline, className, children, ...props }: any) {
-    console.log(children, inline);
     return inline ? (
       <code
         className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono"
@@ -64,7 +63,7 @@ const markdownComponents = {
   ),
 };
 
-const Message = ({
+const Message = memo(({
   message,
   isStreaming = false,
   isSubmitting = false,
@@ -168,6 +167,8 @@ const Message = ({
       </div>
     </div>
   );
-};
+});
+
+Message.displayName = "Message";
 
 export default Message;
