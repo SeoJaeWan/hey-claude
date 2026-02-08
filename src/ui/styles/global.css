@@ -3,12 +3,13 @@
 @tailwind utilities;
 
 /* Highlight.js 테마 (코드 하이라이팅) */
-@import 'highlight.js/styles/github-dark.css';
+@import "highlight.js/styles/github-dark.css";
 
 /* Fonts */
 @font-face {
-  font-family: 'Pretendard';
-  src: url('../assets/fonts/PretendardVariable.ttf') format('truetype-variations');
+  font-family: "Pretendard";
+  src: url("../assets/fonts/PretendardVariable.ttf")
+    format("truetype-variations");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -66,7 +67,7 @@
 }
 
 /* 다크 모드 */
-[data-theme='dark'] {
+[data-theme="dark"] {
   /* 배경 */
   --bg-primary: #1a1a1a;
   --bg-secondary: #242424;
@@ -115,7 +116,7 @@
     @apply antialiased;
   }
 
-  /* 스크롤바 스타일 */
+  /* 스크롤바 기본 스타일 */
   ::-webkit-scrollbar {
     @apply w-2 h-2;
   }
@@ -130,6 +131,39 @@
 
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-text-tertiary;
+  }
+
+  /* Virtuoso 오버레이 스크롤바 */
+  [data-virtuoso-scroller] {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  [data-virtuoso-scroller]:hover {
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  [data-virtuoso-scroller]::-webkit-scrollbar {
+    width: 6px;
+    background: transparent;
+  }
+
+  [data-virtuoso-scroller]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  [data-virtuoso-scroller]::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+    transition: background 0.2s;
+  }
+
+  [data-virtuoso-scroller]:hover::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+  }
+
+  [data-virtuoso-scroller]::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
   }
 }
 
@@ -208,13 +242,16 @@
 }
 
 @keyframes dots {
-  0%, 20% {
+  0%,
+  20% {
     content: ".";
   }
-  40%, 60% {
+  40%,
+  60% {
     content: "..";
   }
-  80%, 100% {
+  80%,
+  100% {
     content: "...";
   }
 }
@@ -230,7 +267,8 @@
 }
 
 @keyframes ping {
-  75%, 100% {
+  75%,
+  100% {
     transform: scale(2);
     opacity: 0;
   }
