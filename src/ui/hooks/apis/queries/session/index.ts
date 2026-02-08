@@ -329,6 +329,38 @@ export const useSSEConnection = (
                     };
                 });
             }
+            // user_message 처리 (UserPromptSubmit Hook)
+            else if (data.type === "user_message") {
+                const message = data.message;
+                console.log("[SSE] user_message:", message.id);
+
+                queryClient.setQueryData(["messages", sessionId], (old: any) => {
+                    if (!old) return old;
+                    const lastPageIndex = old.pages.length - 1;
+                    const rawMsg = {
+                        id: message.id,
+                        session_id: message.sessionId,
+                        role: "user",
+                        content: message.content,
+                        timestamp: message.createdAt
+                    };
+
+                    // 중복 체크
+                    const isDuplicate = old.pages.some((page: any) =>
+                        page.data.some((m: any) => m.id === rawMsg.id)
+                    );
+                    if (isDuplicate) return old;
+
+                    return {
+                        ...old,
+                        pages: old.pages.map((page: any, i: number) =>
+                            i === lastPageIndex
+                                ? { ...page, data: [...page.data, rawMsg] }
+                                : page
+                        ),
+                    };
+                });
+            }
             // turn_complete 처리 (Stop Hook → 로딩 해제)
             else if (data.type === "turn_complete") {
                 console.log("[SSE] turn_complete");

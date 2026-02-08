@@ -141,7 +141,7 @@ class SSEManager {
         if (subscribedClients.length === 0) {
             // Forward key events to all clients as lightweight notification
             const eventType = data?.type;
-            if (eventType === "assistant_message" || eventType === "tool_use_message" || eventType === "turn_complete" || eventType === "ask_user_question" || eventType === "loading_start") {
+            if (eventType === "assistant_message" || eventType === "tool_use_message" || eventType === "turn_complete" || eventType === "ask_user_question" || eventType === "loading_start" || eventType === "user_message") {
                 const notification = `data: ${JSON.stringify({
                     type: "session_data_updated",
                     sessionId,

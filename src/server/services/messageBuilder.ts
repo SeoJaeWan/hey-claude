@@ -35,37 +35,35 @@ export const buildMessageFromToolUse = (
   // Generate user-friendly message based on tool type
   switch (toolName) {
     case "Write":
-      content = `파일을 작성했습니다: \n\n${toolInput.file_path || "알 수 없는 파일"}`;
+      content = `Write ${toolInput.file_path || ""}`;
       break;
 
     case "Edit":
-      content = `파일을 수정했습니다: \n\n${toolInput.file_path || "알 수 없는 파일"}`;
+      content = `Edit ${toolInput.file_path || ""}`;
       break;
 
     case "Bash":
-      content = `명령을 실행했습니다: \n\n${toolInput.command || "알 수 없는 명령"}`;
+      content = `Bash ${toolInput.command || ""}`;
       break;
 
     case "Read":
-      content = `파일을 읽었습니다: \n\n${toolInput.file_path || "알 수 없는 파일"}`;
+      content = `Read ${toolInput.file_path || ""}`;
       break;
 
     case "Grep":
-      content = `검색했습니다: \n\n"${toolInput.pattern || "알 수 없는 패턴"}"`;
+      content = `Grep ${toolInput.pattern || ""}`;
       break;
 
     case "Glob":
-      content = `파일을 찾았습니다: \n\n"${toolInput.pattern || "알 수 없는 패턴"}"`;
+      content = `Glob ${toolInput.pattern || ""}`;
       break;
 
     case "AskUserQuestion":
-      // AskUserQuestion은 PreToolUse에서 처리되므로 여기서는 단순 표시
-      content = `질문을 표시했습니다`;
+      content = `AskUserQuestion`;
       break;
 
     default:
-      // Generic fallback for unknown tools
-      content = `${toolName} 도구를 사용했습니다`;
+      content = `${toolName}`;
       break;
   }
 
@@ -102,7 +100,7 @@ export const buildMessageFromMultipleToolUses = (
   if (toolUses.length === 0) {
     return {
       role: "assistant",
-      content: "작업을 완료했습니다",
+      content: "No tools used",
     };
   }
 
@@ -114,7 +112,7 @@ export const buildMessageFromMultipleToolUses = (
   const toolNames = toolUses.map((t) => t.toolName);
   const uniqueTools = [...new Set(toolNames)];
 
-  const content = `${uniqueTools.length}개의 도구를 사용했습니다: ${uniqueTools.join(", ")}`;
+  const content = `Used ${uniqueTools.length} tools: ${uniqueTools.join(", ")}`;
 
   return {
     role: "assistant",

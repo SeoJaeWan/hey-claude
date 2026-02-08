@@ -89,15 +89,11 @@ export const useMessagesQuery = (sessionId?: string) => {
 export const useSendMessage = () => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
 
   const sendMessage = useCallback(
     async (sessionId: string, prompt: string, images?: File[]) => {
       setIsSending(true);
       setError(null);
-
-      // 임시 메시지 ID 생성
-      const tempUserMsgId = `temp-user-${Date.now()}`;
 
       try {
         // 이미지를 Base64로 인코딩
@@ -105,30 +101,6 @@ export const useSendMessage = () => {
         if (images && images.length > 0) {
           imageData = await Promise.all(images.map(fileToBase64));
         }
-
-        // Optimistic Update: 사용자 메시지 즉시 추가
-        queryClient.setQueryData(["messages", sessionId], (old: any) => {
-          if (!old) return old;
-
-          const userMessage = {
-            id: tempUserMsgId,
-            session_id: sessionId,
-            role: "user",
-            content: prompt,
-            images: imageData ? JSON.stringify(imageData) : null,
-            timestamp: new Date().toISOString(),
-          };
-
-          const lastPageIndex = old.pages.length - 1;
-          return {
-            ...old,
-            pages: old.pages.map((page: any, i: number) =>
-              i === lastPageIndex
-                ? { ...page, data: [...page.data, userMessage] }
-                : page,
-            ),
-          };
-        });
 
         // POST /api/chat/send (fire-and-forget)
         const response = await fetch("/api/chat/send", {
@@ -152,11 +124,9 @@ export const useSendMessage = () => {
         console.error("[useSendMessage] Error:", err);
         setError(err instanceof Error ? err.message : "Unknown error");
         setIsSending(false);
-        // 에러 시 optimistic update rollback
-        queryClient.invalidateQueries({ queryKey: ["messages", sessionId] });
       }
     },
-    [queryClient],
+    [],
   );
 
   const reset = useCallback(() => {

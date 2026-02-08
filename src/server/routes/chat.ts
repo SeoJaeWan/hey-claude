@@ -13,7 +13,6 @@
  */
 
 import { Router, type Router as RouterType } from "express";
-import { randomUUID } from "crypto";
 import { getDatabase } from "../services/database.js";
 import sessionStatusManager from "../services/sessionStatusManager.js";
 import claudeProcessManager from "../services/claudeProcessManager.js";
@@ -144,16 +143,6 @@ router.post("/send", async (req, res) => {
             }
         }
 
-        // 사용자 메시지 저장 (이미지 포함)
-        const userMessageId = randomUUID();
-        const imagesJson = imageData ? JSON.stringify(imageData) : null;
-        db.prepare(
-            `INSERT INTO messages (id, session_id, role, content, images, timestamp)
-             VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(userMessageId, sessionId, "user", actualMessage, imagesJson, new Date().toISOString());
-
-        console.log("[CHAT SEND] User message saved:", { messageId: userMessageId });
-
         // 세션 조회 (claude_session_id, project_path 등)
         const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as any;
 
@@ -219,7 +208,7 @@ router.post("/send", async (req, res) => {
             await new Promise(resolve => setTimeout(resolve, 500));
             claudeProcessManager.write(sessionId, '\r');
             console.log("[CHAT SEND] Message + Enter sent to PTY stdin");
-            res.json({ success: true, messageId: userMessageId });
+            res.json({ success: true });
         } else {
             console.log("[CHAT SEND] Failed to write to PTY");
             res.status(500).json({

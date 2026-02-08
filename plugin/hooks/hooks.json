@@ -25,12 +25,23 @@
         ],
         "PostToolUse": [
             {
-                "matcher": "Write|Edit|MultiEdit|Bash",
+                "matcher": "Write|Edit|MultiEdit|Bash|Read|Grep|Glob",
                 "hooks": [
                     {
                         "type": "command",
                         "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/tool-use.js",
                         "timeout": 5000
+                    }
+                ]
+            }
+        ],
+        "UserPromptSubmit": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt-submit.js",
+                        "timeout": 3000
                     }
                 ]
             }

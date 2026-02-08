@@ -366,6 +366,78 @@ router.post("/tool-use", async (req, res) => {
     }
 });
 
+// POST /api/hooks/user-prompt - UserPromptSubmit Hook
+router.post("/user-prompt", async (req, res) => {
+    try {
+        const { sessionId: claudeSessionId, prompt, projectPath } = req.body;
+        console.log("[HOOKS] UserPromptSubmit received:", { claudeSessionId, promptLength: prompt?.length });
+
+        if (!claudeSessionId || !prompt) {
+            return res.json({ success: true });
+        }
+
+        const db = getDatabase();
+
+        // 세션 매핑 (resolveInternalSession 재사용)
+        let session = resolveInternalSession(claudeSessionId);
+        let internalSessionId: string;
+
+        if (!session) {
+            // 터미널 직접 시작 — 새 세션 생성
+            internalSessionId = randomUUID();
+            const now = new Date().toISOString();
+            db.prepare(`
+                INSERT INTO sessions (id, type, claude_session_id, project_path, source, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(internalSessionId, "claude-code", claudeSessionId, projectPath, "terminal", "active", now, now);
+            sessionMappingCache.set(claudeSessionId, internalSessionId);
+            console.log(`[HOOKS] UserPromptSubmit: Created new session ${internalSessionId} for claude ${claudeSessionId}`);
+        } else {
+            internalSessionId = session.id;
+        }
+
+        // 사용자 메시지 DB 저장
+        const messageId = randomUUID();
+        const now = new Date().toISOString();
+        db.prepare(`INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)`)
+            .run(messageId, internalSessionId, "user", prompt, now);
+
+        console.log(`[HOOKS] UserPromptSubmit: User message saved: ${messageId}`);
+
+        // 세션 상태 → streaming
+        sessionStatusManager.setStatus(internalSessionId, "streaming");
+
+        // 세션 updated_at 갱신
+        db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, internalSessionId);
+
+        // SSE broadcast: user_message
+        sseManager.broadcastToSession(internalSessionId, {
+            type: "user_message",
+            sessionId: internalSessionId,
+            message: {
+                id: messageId,
+                sessionId: internalSessionId,
+                role: "user",
+                content: prompt,
+                createdAt: now
+            }
+        });
+
+        // SSE broadcast: loading_start
+        sseManager.broadcastToSession(internalSessionId, {
+            type: "loading_start",
+            sessionId: internalSessionId
+        });
+
+        console.log(`[HOOKS] UserPromptSubmit: SSE broadcast complete for session ${internalSessionId}`);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("[HOOKS] UserPromptSubmit error:", error);
+        res.json({ success: true }); // Never block Claude
+    }
+});
+
 // POST /api/hooks/stop - Stop hook (transcript 파싱 + assistant 메시지 저장)
 router.post("/stop", async (req, res) => {
     try {
