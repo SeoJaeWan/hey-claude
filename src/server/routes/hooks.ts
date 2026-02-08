@@ -493,18 +493,23 @@ router.post("/permission-request", async (req, res) => {
 
         pendingPermissions.set(requestId, pendingPermission);
 
-        // SSE로 프론트엔드에 알림
-        sseManager.broadcastToSession(internalSessionId, {
-            type: "permission_request",
-            sessionId: internalSessionId,
-            requestId,
-            toolName,
-            toolInput: toolInput || {}
-        });
+        // 구독자 확인
+        const hasSubscribers = sseManager.hasSessionSubscribers(internalSessionId);
 
-        console.log(`[HOOKS] PermissionRequest: Registered ${requestId} for session ${internalSessionId}`);
+        // SSE로 프론트엔드에 알림 (구독자가 있을 때만)
+        if (hasSubscribers) {
+            sseManager.broadcastToSession(internalSessionId, {
+                type: "permission_request",
+                sessionId: internalSessionId,
+                requestId,
+                toolName,
+                toolInput: toolInput || {}
+            });
+        }
 
-        res.json({ requestId });
+        console.log(`[HOOKS] PermissionRequest: Registered ${requestId} for session ${internalSessionId} (hasSubscribers: ${hasSubscribers})`);
+
+        res.json({ requestId, hasSubscribers });
     } catch (error) {
         console.error("[HOOKS] PermissionRequest error:", error);
         res.status(500).json({ error: "Internal server error" });
@@ -650,6 +655,22 @@ router.post("/stop", async (req, res) => {
             }
         } else {
             console.log(`[HOOKS] Stop: No transcript_path found (provided: ${transcript_path}, auto-detect failed)`);
+        }
+
+        // Clean up pending permissions for this session
+        for (const [reqId, pending] of pendingPermissions.entries()) {
+            if (pending.sessionId === internalSessionId && !pending.decided) {
+                pending.decided = true;
+                // No behavior set = expired state
+                sseManager.broadcastToSession(internalSessionId, {
+                    type: "permission_decided",
+                    sessionId: internalSessionId,
+                    requestId: reqId,
+                    behavior: null
+                });
+                pendingPermissions.delete(reqId);
+                console.log(`[HOOKS] Stop: Cleaned up expired permission request ${reqId}`);
+            }
         }
 
         // SSE로 turn_complete 이벤트 broadcast (프론트엔드 로딩 해제)

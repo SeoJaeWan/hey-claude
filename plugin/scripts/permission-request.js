@@ -49,27 +49,32 @@ process.stdin.on('end', async () => {
             toolInput: tool_input || {},
         });
 
-        let requestId;
+        let result;
         try {
-            requestId = await makeRequest(port, '/api/hooks/permission-request', 'POST', registerPayload);
+            result = await makeRequest(port, '/api/hooks/permission-request', 'POST', registerPayload);
         } catch (error) {
             // 등록 실패 - deny로 처리
             outputDecision('deny');
             return;
         }
 
-        // 2. 폴링 루프 (120초 타임아웃)
-        const startTime = Date.now();
-        const timeout = 120000; // 120 seconds
+        // 2. 구독자 확인 - 없으면 CLI 기본 다이얼로그로 넘김
+        const { requestId, hasSubscribers } = result;
+        if (!hasSubscribers) {
+            // 구독자 없음 - 아무것도 출력하지 않고 종료 (CLI가 자체 처리)
+            process.exit(0);
+        }
+
+        // 3. 폴링 루프 (무한 대기, hooks.json 타임아웃이 안전망)
         const pollInterval = 200; // 200ms
 
-        while (Date.now() - startTime < timeout) {
+        while (true) {
             try {
-                const result = await makeRequest(port, `/api/hooks/permission-poll?requestId=${requestId}`, 'GET');
+                const pollResult = await makeRequest(port, `/api/hooks/permission-poll?requestId=${requestId}`, 'GET');
 
-                if (result.decided) {
+                if (pollResult.decided) {
                     // 사용자가 결정함
-                    outputDecision(result.behavior || 'deny');
+                    outputDecision(pollResult.behavior || 'deny');
                     return;
                 }
 
@@ -81,9 +86,6 @@ process.stdin.on('end', async () => {
                 return;
             }
         }
-
-        // 타임아웃 - deny로 처리
-        outputDecision('deny');
     } catch (error) {
         outputDecision('deny');
     }
