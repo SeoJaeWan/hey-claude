@@ -35,27 +35,27 @@ export const buildMessageFromToolUse = (
   // Generate user-friendly message based on tool type
   switch (toolName) {
     case "Write":
-      content = `파일을 작성했습니다: \n${toolInput.file_path || "알 수 없는 파일"}`;
+      content = `파일을 작성했습니다: \n\n${toolInput.file_path || "알 수 없는 파일"}`;
       break;
 
     case "Edit":
-      content = `파일을 수정했습니다: \n${toolInput.file_path || "알 수 없는 파일"}`;
+      content = `파일을 수정했습니다: \n\n${toolInput.file_path || "알 수 없는 파일"}`;
       break;
 
     case "Bash":
-      content = `명령을 실행했습니다: \n${toolInput.command || "알 수 없는 명령"}`;
+      content = `명령을 실행했습니다: \n\n${toolInput.command || "알 수 없는 명령"}`;
       break;
 
     case "Read":
-      content = `파일을 읽었습니다: \n${toolInput.file_path || "알 수 없는 파일"}`;
+      content = `파일을 읽었습니다: \n\n${toolInput.file_path || "알 수 없는 파일"}`;
       break;
 
     case "Grep":
-      content = `검색했습니다: \n"${toolInput.pattern || "알 수 없는 패턴"}"`;
+      content = `검색했습니다: \n\n"${toolInput.pattern || "알 수 없는 패턴"}"`;
       break;
 
     case "Glob":
-      content = `파일을 찾았습니다: \n"${toolInput.pattern || "알 수 없는 패턴"}"`;
+      content = `파일을 찾았습니다: \n\n"${toolInput.pattern || "알 수 없는 패턴"}"`;
       break;
 
     case "AskUserQuestion":
