@@ -40,8 +40,6 @@ const MessageList = ({
     const newCount = messages.length;
     if (newCount > prevCount) {
       const added = newCount - prevCount;
-      // 새 메시지가 앞에 추가된 경우 (스크롤 업으로 이전 메시지 로드)
-      // firstItemIndex를 줄여서 스크롤 위치 유지
       setFirstItemIndex((prev) => prev - added);
     }
     prevCountRef.current = newCount;
@@ -55,58 +53,57 @@ const MessageList = ({
   }, [hasMore, isLoadingMore, onLoadMore]);
 
   return (
-    <div className="flex-1 overflow-hidden px-6 py-6 pb-36">
-      <div className="max-w-3xl mx-auto h-full">
-        {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <p className="text-text-secondary text-sm">메시지가 없습니다</p>
-              <p className="text-text-tertiary text-xs mt-1">
-                아래 입력창에서 대화를 시작하세요
-              </p>
-            </div>
+    <div className="flex-1 overflow-hidden">
+      {messages.length === 0 ? (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <p className="text-text-secondary text-sm">메시지가 없습니다</p>
+            <p className="text-text-tertiary text-xs mt-1">
+              아래 입력창에서 대화를 시작하세요
+            </p>
           </div>
-        ) : (
-          <Virtuoso
-            ref={virtuosoRef}
-            firstItemIndex={firstItemIndex}
-            initialTopMostItemIndex={messages.length - 1}
-            data={messages}
-            startReached={handleStartReached}
-            followOutput="smooth"
-            itemContent={(index: number, message: MessageType) => {
-              // index는 firstItemIndex부터 시작하는 절대 인덱스
-              const msgIndex = index - firstItemIndex;
-              const isLastAssistant =
-                msgIndex === messages.length - 1 && message.role === "assistant";
-              const showStreaming = isLastAssistant && isStreaming;
+        </div>
+      ) : (
+        <Virtuoso
+          ref={virtuosoRef}
+          firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={messages.length - 1}
+          data={messages}
+          startReached={handleStartReached}
+          followOutput="smooth"
+          itemContent={(index: number, message: MessageType) => {
+            const msgIndex = index - firstItemIndex;
+            const isLastAssistant =
+              msgIndex === messages.length - 1 && message.role === "assistant";
+            const showStreaming = isLastAssistant && isStreaming;
 
-              return (
-                <div className="py-3">
-                  <Message
-                    key={message.id}
-                    message={message}
-                    isStreaming={showStreaming}
-                    isSubmitting={isSubmitting}
-                    onQuestionSubmit={onQuestionSubmit}
-                  />
+            return (
+              <div className="max-w-3xl mx-auto py-1.5">
+                <Message
+                  key={message.id}
+                  message={message}
+                  isStreaming={showStreaming}
+                  isSubmitting={isSubmitting}
+                  onQuestionSubmit={onQuestionSubmit}
+                />
+              </div>
+            );
+          }}
+          components={{
+            Header: () =>
+              isLoadingMore ? (
+                <div className="max-w-3xl mx-auto px-6 text-center py-2">
+                  <span className="text-text-tertiary text-sm">
+                    이전 메시지 로딩 중...
+                  </span>
                 </div>
-              );
-            }}
-            components={{
-              Header: () =>
-                isLoadingMore ? (
-                  <div className="text-center py-2">
-                    <span className="text-text-tertiary text-sm">
-                      이전 메시지 로딩 중...
-                    </span>
-                  </div>
-                ) : null,
-              Footer: () =>
-                isStreaming &&
-                messages.length > 0 &&
-                messages[messages.length - 1].role !== "assistant" ? (
-                  <div className="flex justify-start py-3">
+              ) : null,
+            Footer: () =>
+              isStreaming &&
+              messages.length > 0 &&
+              messages[messages.length - 1].role !== "assistant" ? (
+                <div className="max-w-3xl mx-auto px-6 py-3">
+                  <div className="flex justify-start">
                     <div className="max-w-[85%]">
                       <div className="px-4 py-3 rounded-2xl bg-bubble-assistant text-text-primary border border-border-default">
                         <div className="flex items-center gap-1.5">
@@ -117,11 +114,13 @@ const MessageList = ({
                       </div>
                     </div>
                   </div>
-                ) : null,
-            }}
-          />
-        )}
-      </div>
+                </div>
+              ) : (
+                <div className="pb-36" />
+              ),
+          }}
+        />
+      )}
     </div>
   );
 };
