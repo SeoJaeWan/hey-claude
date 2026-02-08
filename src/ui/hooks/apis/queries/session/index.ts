@@ -426,6 +426,31 @@ export const useSSEConnection = (
                     };
                 });
             }
+            // question_answered 처리 (PostToolUse AskUserQuestion → 답변 결과)
+            else if (data.type === "question_answered") {
+                console.log("[SSE] question_answered");
+
+                queryClient.setQueryData(["messages", sessionId], (old: any) => {
+                    if (!old) return old;
+                    return {
+                        ...old,
+                        pages: old.pages.map((page: any) => ({
+                            ...page,
+                            data: page.data.map((msg: any) => {
+                                // 세션 기반 매칭: pending question 찾기
+                                if (msg.isQuestion && msg.questionData && !msg.questionSubmitted) {
+                                    return {
+                                        ...msg,
+                                        questionSubmitted: true,
+                                        questionAnswers: data.answers
+                                    };
+                                }
+                                return msg;
+                            })
+                        }))
+                    };
+                });
+            }
             // turn_complete 처리 (Stop Hook → 로딩 해제)
             else if (data.type === "turn_complete") {
                 console.log("[SSE] turn_complete");

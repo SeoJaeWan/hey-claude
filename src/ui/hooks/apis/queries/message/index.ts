@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import type { Message } from "../../../../types";
 import { api } from "../../../../utils/api";
 
@@ -155,7 +155,6 @@ export const useSendMessage = () => {
 export const useSubmitQuestionAnswer = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
 
   const submitAnswer = useCallback(
     async (
@@ -171,7 +170,6 @@ export const useSubmitQuestionAnswer = () => {
       setError(null);
 
       try {
-        // POST /api/chat/tool-result (fire-and-forget)
         const response = await fetch("/api/chat/tool-result", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -182,32 +180,14 @@ export const useSubmitQuestionAnswer = () => {
           throw new Error(`HTTP ${response.status}`);
         }
 
-        // 질문 제출 완료로 표시
-        queryClient.setQueryData(["messages", sessionId], (old: any) => {
-          if (!old) return old;
-
-          return {
-            ...old,
-            pages: old.pages.map((page: any) => ({
-              ...page,
-              data: page.data.map((msg: any) => {
-                if (msg.questionData && !msg.questionSubmitted) {
-                  return { ...msg, questionSubmitted: true, questionAnswers: answers };
-                }
-                return msg;
-              }),
-            })),
-          };
-        });
-
-        // isSubmitting은 SSE turn_complete에서 해제됨
+        // isSubmitting은 SSE question_answered 또는 turn_complete에서 해제됨
       } catch (err) {
         console.error("Submit error:", err);
         setError(err instanceof Error ? err.message : "Unknown error");
         setIsSubmitting(false);
       }
     },
-    [queryClient],
+    [],
   );
 
   const stopSubmitting = useCallback(() => {
