@@ -12,6 +12,7 @@ interface MessageListProps {
     toolUseId: string,
     answers: QuestionAnswer[],
   ) => void;
+  onPermissionDecide?: (requestId: string, behavior: "allow" | "deny") => void;
   hasMore?: boolean;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
@@ -22,6 +23,7 @@ const MessageList = ({
   isStreaming = false,
   isSubmitting = false,
   onQuestionSubmit,
+  onPermissionDecide,
   hasMore = false,
   onLoadMore,
   isLoadingMore = false,
@@ -85,6 +87,7 @@ const MessageList = ({
                 message={message}
                 isSubmitting={isSubmitting}
                 onQuestionSubmit={onQuestionSubmit}
+                onPermissionDecide={onPermissionDecide}
               />
             </div>
           )}

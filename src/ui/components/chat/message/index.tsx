@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import FileChangesCard from "../fileChangesCard";
 import QuestionCard from "../questionCard";
+import PermissionCard from "../permissionCard";
 import type {
   Message as MessageType,
   QuestionAnswer,
@@ -34,6 +35,7 @@ interface MessageProps {
     toolUseId: string,
     answers: QuestionAnswer[],
   ) => void;
+  onPermissionDecide?: (requestId: string, behavior: "allow" | "deny") => void;
 }
 
 // Markdown 커스텀 컴포넌트 정의
@@ -84,7 +86,7 @@ const markdownComponents = {
 };
 
 const Message = memo(
-  ({ message, isSubmitting = false, onQuestionSubmit }: MessageProps) => {
+  ({ message, isSubmitting = false, onQuestionSubmit, onPermissionDecide }: MessageProps) => {
     const isUser = message.role === "user";
 
     // toolUsages에서 파일 변경사항 추출
@@ -157,6 +159,18 @@ const Message = memo(
                   {stripIdeTags(message.content)}
                 </ReactMarkdown>
               </div>
+            )}
+
+            {/* Permission request */}
+            {!isUser && message.permissionData && (
+              <PermissionCard
+                permissionData={message.permissionData}
+                onDecide={(behavior) => {
+                  if (onPermissionDecide) {
+                    onPermissionDecide(message.permissionData!.requestId, behavior);
+                  }
+                }}
+              />
             )}
           </div>
 

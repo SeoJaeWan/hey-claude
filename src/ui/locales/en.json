@@ -180,5 +180,15 @@
         "processExited": "Process exited with code {{code}}",
         "connecting": "Connecting to terminal...",
         "disconnected": "Terminal disconnected"
+    },
+    "permission": {
+        "title": "Permission Request",
+        "allow": "Allow",
+        "deny": "Deny",
+        "allowed": "Allowed",
+        "denied": "Denied",
+        "waiting": "Waiting for your decision...",
+        "showMore": "Show more",
+        "showLess": "Show less"
     }
 }

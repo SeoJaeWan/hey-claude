@@ -148,6 +148,17 @@ const ChatPage = () => {
     [submitAnswer],
   );
 
+  const handlePermissionDecide = useCallback(
+    async (requestId: string, behavior: "allow" | "deny") => {
+      await fetch("/api/hooks/permission-decide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId, behavior }),
+      });
+    },
+    [],
+  );
+
   // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
@@ -171,6 +182,7 @@ const ChatPage = () => {
         isStreaming={isStreaming}
         isSubmitting={isSubmitting}
         onQuestionSubmit={handleQuestionSubmit}
+        onPermissionDecide={handlePermissionDecide}
         hasMore={hasNextPage}
         onLoadMore={fetchNextPage}
         isLoadingMore={isFetchingNextPage}

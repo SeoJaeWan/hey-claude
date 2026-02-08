@@ -45,6 +45,14 @@ export interface QuestionAnswer {
     selectedOptions: string[];   // 선택된 옵션들 (label 배열)
 }
 
+export interface PermissionRequestData {
+    requestId: string;
+    toolName: string;
+    toolInput: any;
+    decided?: boolean;
+    behavior?: "allow" | "deny";
+}
+
 export interface Message {
     id: string;
     sessionId: string;
@@ -56,6 +64,7 @@ export interface Message {
     isQuestion?: boolean; // 질문 여부 (type: "question"일 때 true)
     questionData?: QuestionData; // AskUserQuestion 구조화된 데이터
     questionSubmitted?: boolean; // 답변 제출 여부
+    permissionData?: PermissionRequestData; // 권한 요청 데이터
     toolUsages?: Array<{
         name: string;
         input: any;

@@ -180,5 +180,15 @@
         "processExited": "프로세스가 종료되었습니다 (코드: {{code}})",
         "connecting": "터미널 연결 중...",
         "disconnected": "터미널 연결이 끊어졌습니다"
+    },
+    "permission": {
+        "title": "권한 요청",
+        "allow": "허용",
+        "deny": "거부",
+        "allowed": "허용됨",
+        "denied": "거부됨",
+        "waiting": "결정을 기다리는 중...",
+        "showMore": "더 보기",
+        "showLess": "접기"
     }
 }

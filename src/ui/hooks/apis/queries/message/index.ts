@@ -29,6 +29,15 @@ const convertMessage = (msg: any): Message => ({
         : msg.question_data
       : undefined),
   questionSubmitted: msg.questionSubmitted || msg.question_submitted === 1,
+  permissionData: msg.permission_data
+    ? {
+        requestId: msg.permission_data.requestId,
+        toolName: msg.permission_data.toolName,
+        toolInput: msg.permission_data.toolInput,
+        decided: msg.permission_data.decided,
+        behavior: msg.permission_data.behavior,
+      }
+    : undefined,
   toolUsages:
     msg.toolUsages ||
     (msg.tool_usages
