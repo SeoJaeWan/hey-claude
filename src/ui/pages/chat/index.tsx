@@ -29,7 +29,8 @@ const ChatPage = () => {
   const sessionName = session?.name || `Session ${sessionId}`;
 
   // 메시지 목록 조회
-  const { data: messages } = useMessagesQuery(sessionId);
+  const { data: messagesData, hasNextPage, fetchNextPage, isFetchingNextPage } = useMessagesQuery(sessionId);
+  const messages = messagesData?.messages ?? [];
 
   // 메시지 전송
   const { isSending, sendMessage, stopSending } = useSendMessage();
@@ -161,12 +162,15 @@ const ChatPage = () => {
       <PageHeader title={sessionName} onMenuClick={onMenuClick} />
 
       {/* Messages */}
-      {/* <MessageList
+      <MessageList
         messages={messages}
         isStreaming={isStreaming}
         isSubmitting={isSubmitting}
         onQuestionSubmit={handleQuestionSubmit}
-      /> */}
+        hasMore={hasNextPage}
+        onLoadMore={fetchNextPage}
+        isLoadingMore={isFetchingNextPage}
+      />
 
       {/* Input */}
       <ChatInput

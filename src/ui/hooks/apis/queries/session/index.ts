@@ -18,7 +18,6 @@ const mapSession = (raw: any): Session => ({
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
     projectPath: raw.project_path,
-    messages: raw.messages
 });
 
 // 세션 정렬 함수
@@ -231,26 +230,31 @@ export const useSSEConnection = (
                 const message = data.message;
                 console.log("[SSE] tool_use_message:", message.id);
 
-                queryClient.setQueryData(["session", sessionId], (old: any) => {
+                queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
-                    const messages = old.messages || [];
+                    const lastPageIndex = old.pages.length - 1;
+                    const rawMsg = {
+                        id: message.id,
+                        session_id: message.sessionId,
+                        role: message.role,
+                        content: message.content,
+                        toolUsages: message.toolUsages,
+                        timestamp: message.createdAt
+                    };
 
                     // 중복 체크
-                    if (messages.some((m: any) => m.id === message.id)) return old;
+                    const isDuplicate = old.pages.some((page: any) =>
+                        page.data.some((m: any) => m.id === rawMsg.id)
+                    );
+                    if (isDuplicate) return old;
 
                     return {
                         ...old,
-                        messages: [
-                            ...messages,
-                            {
-                                id: message.id,
-                                session_id: message.sessionId,
-                                role: message.role,
-                                content: message.content,
-                                toolUsages: message.toolUsages,
-                                timestamp: message.createdAt
-                            }
-                        ]
+                        pages: old.pages.map((page: any, i: number) =>
+                            i === lastPageIndex
+                                ? { ...page, data: [...page.data, rawMsg] }
+                                : page
+                        ),
                     };
                 });
             }
@@ -264,27 +268,32 @@ export const useSSEConnection = (
                 };
                 const questionMsgId = `question-${data.toolUseId}`;
 
-                queryClient.setQueryData(["session", sessionId], (old: any) => {
+                queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
-                    const messages = old.messages || [];
+                    const lastPageIndex = old.pages.length - 1;
+                    const rawMsg = {
+                        id: questionMsgId,
+                        session_id: sessionId,
+                        role: "assistant",
+                        content: "",
+                        timestamp: new Date().toISOString(),
+                        isQuestion: true,
+                        questionData
+                    };
 
                     // 중복 체크
-                    if (messages.some((m: any) => m.id === questionMsgId)) return old;
+                    const isDuplicate = old.pages.some((page: any) =>
+                        page.data.some((m: any) => m.id === questionMsgId)
+                    );
+                    if (isDuplicate) return old;
 
                     return {
                         ...old,
-                        messages: [
-                            ...messages,
-                            {
-                                id: questionMsgId,
-                                session_id: sessionId,
-                                role: "assistant",
-                                content: "",
-                                timestamp: new Date().toISOString(),
-                                isQuestion: true,
-                                questionData
-                            }
-                        ]
+                        pages: old.pages.map((page: any, i: number) =>
+                            i === lastPageIndex
+                                ? { ...page, data: [...page.data, rawMsg] }
+                                : page
+                        ),
                     };
                 });
             }
@@ -293,25 +302,30 @@ export const useSSEConnection = (
                 const message = data.message;
                 console.log("[SSE] assistant_message:", message.id, `(${message.content?.length} chars)`);
 
-                queryClient.setQueryData(["session", sessionId], (old: any) => {
+                queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
-                    const messages = old.messages || [];
+                    const lastPageIndex = old.pages.length - 1;
+                    const rawMsg = {
+                        id: message.id,
+                        session_id: message.sessionId,
+                        role: "assistant",
+                        content: message.content,
+                        timestamp: message.createdAt
+                    };
 
                     // 중복 체크
-                    if (messages.some((m: any) => m.id === message.id)) return old;
+                    const isDuplicate = old.pages.some((page: any) =>
+                        page.data.some((m: any) => m.id === rawMsg.id)
+                    );
+                    if (isDuplicate) return old;
 
                     return {
                         ...old,
-                        messages: [
-                            ...messages,
-                            {
-                                id: message.id,
-                                session_id: message.sessionId,
-                                role: "assistant",
-                                content: message.content,
-                                timestamp: message.createdAt
-                            }
-                        ]
+                        pages: old.pages.map((page: any, i: number) =>
+                            i === lastPageIndex
+                                ? { ...page, data: [...page.data, rawMsg] }
+                                : page
+                        ),
                     };
                 });
             }

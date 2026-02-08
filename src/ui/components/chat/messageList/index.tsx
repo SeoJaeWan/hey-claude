@@ -11,6 +11,9 @@ interface MessageListProps {
     toolUseId: string,
     answers: QuestionAnswer[],
   ) => void;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
 }
 
 const MessageList = ({
@@ -18,6 +21,9 @@ const MessageList = ({
   isStreaming = false,
   isSubmitting = false,
   onQuestionSubmit,
+  hasMore = false,
+  onLoadMore,
+  isLoadingMore = false,
 }: MessageListProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
@@ -38,6 +44,11 @@ const MessageList = ({
       clearTimeout(userScrollTimeoutRef.current);
     } else {
       setIsUserScrolling(false);
+    }
+
+    // 상단 도달 시 이전 메시지 로드
+    if (container.scrollTop < 50 && hasMore && !isLoadingMore && onLoadMore) {
+      onLoadMore();
     }
   };
 
@@ -74,6 +85,11 @@ const MessageList = ({
           </div>
         ) : (
           <>
+            {isLoadingMore && (
+              <div className="text-center py-2">
+                <span className="text-text-tertiary text-sm">이전 메시지 로딩 중...</span>
+              </div>
+            )}
             {messages.map((message, index) => {
               // 마지막 assistant 메시지에만 isStreaming 전달
               const isLastAssistant =

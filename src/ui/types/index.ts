@@ -17,7 +17,6 @@ export interface Session {
     createdAt: string;
     updatedAt: string;
     projectPath: string;
-    messages?: Message[]; // 세션 조회 시 포함되는 메시지 목록 (optional)
 }
 
 // 메시지 타입
