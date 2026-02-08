@@ -29,6 +29,7 @@ const convertMessage = (msg: any): Message => ({
         : msg.question_data
       : undefined),
   questionSubmitted: msg.questionSubmitted || msg.question_submitted === 1,
+  questionAnswers: msg.questionAnswers || msg.question_answers,
   permissionData: msg.permission_data
     ? {
         requestId: msg.permission_data.requestId,
@@ -191,7 +192,7 @@ export const useSubmitQuestionAnswer = () => {
               ...page,
               data: page.data.map((msg: any) => {
                 if (msg.questionData && !msg.questionSubmitted) {
-                  return { ...msg, questionSubmitted: true };
+                  return { ...msg, questionSubmitted: true, questionAnswers: answers };
                 }
                 return msg;
               }),

@@ -64,6 +64,7 @@ export interface Message {
     isQuestion?: boolean; // 질문 여부 (type: "question"일 때 true)
     questionData?: QuestionData; // AskUserQuestion 구조화된 데이터
     questionSubmitted?: boolean; // 답변 제출 여부
+    questionAnswers?: QuestionAnswer[]; // 제출된 답변 (선택 결과 유지용)
     permissionData?: PermissionRequestData; // 권한 요청 데이터
     toolUsages?: Array<{
         name: string;

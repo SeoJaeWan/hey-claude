@@ -144,6 +144,7 @@ const Message = memo(
                   questionData={message.questionData}
                   isSubmitted={message.questionSubmitted}
                   isSubmitting={isSubmitting}
+                  questionAnswers={message.questionAnswers}
                   onSubmit={handleQuestionSubmit}
                 />
               </>
