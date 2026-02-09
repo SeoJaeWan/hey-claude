@@ -107,7 +107,7 @@ const Message = memo(
                         }
                     `}
           >
-            {/* assistant 메시지이면서 questionData가 있으면 QuestionCard */}
+            {/* assistant 메시지: questionData, permissionData, 일반 텍스트 중 하나만 배타적으로 표시 */}
             {!isUser && message.questionData ? (
               <>
                 {/* 질문 전 텍스트가 있으면 표시 */}
@@ -129,6 +129,10 @@ const Message = memo(
                   questionAnswers={message.questionAnswers}
                 />
               </>
+            ) : !isUser && message.permissionData ? (
+              <PermissionCard
+                permissionData={message.permissionData}
+              />
             ) : (
               <div
                 className={`text-base leading-relaxed break-words markdown-content`}
@@ -141,13 +145,6 @@ const Message = memo(
                   {stripIdeTags(message.content)}
                 </ReactMarkdown>
               </div>
-            )}
-
-            {/* Permission request */}
-            {!isUser && message.permissionData && (
-              <PermissionCard
-                permissionData={message.permissionData}
-              />
             )}
           </div>
 
