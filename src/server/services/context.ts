@@ -9,7 +9,7 @@ interface ContextOptions {
 }
 
 export const getRecentContext = async (
-    options: ContextOptions = {}
+    _options: ContextOptions = {}
 ): Promise<string | null> => {
     try {
         const db = getDatabase();

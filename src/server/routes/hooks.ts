@@ -13,6 +13,17 @@ import { existsSync } from "fs";
 
 const router: RouterType = Router();
 
+// 세션별 다음 sequence 번호 가져오기
+const getNextSequence = (sessionId: string): number => {
+    const db = getDatabase();
+    const result = db.prepare(`
+        SELECT COALESCE(MAX(sequence), 0) + 1 as next_seq
+        FROM messages
+        WHERE session_id = ?
+    `).get(sessionId) as { next_seq: number };
+    return result.next_seq;
+};
+
 // Session mapping cache: claudeSessionId → internalSessionId
 const sessionMappingCache = new Map<string, string>();
 
@@ -228,6 +239,7 @@ router.post("/tool-use", async (req, res) => {
 
         // 기존 PostToolUse hook 형식 (session_id, tool_name 등)도 지원
         const claudeSessionId = sessionId || req.body.session_id;
+        const tool_use_id = toolUseId || req.body.tool_use_id;  // tool_use_id 필드도 지원
         const tool_name = toolName || req.body.tool_name;
         const tool_input = toolInput || req.body.tool_input;
         const tool_response = toolOutput || req.body.tool_response;
@@ -264,24 +276,54 @@ router.post("/tool-use", async (req, res) => {
             sessionSource = sessionData?.source || "terminal";
         }
 
-        // PreToolUse: AskUserQuestion 감지 시 SSE로 프론트엔드에 전달
+        // PreToolUse: AskUserQuestion 감지 시 DB 저장 + SSE로 프론트엔드에 전달
         if (type === 'pre' && tool_name === 'AskUserQuestion' && tool_input?.questions) {
-            console.log("[HOOKS] AskUserQuestion detected, broadcasting to frontend via SSE");
+            console.log("[HOOKS] AskUserQuestion detected, saving to DB and broadcasting via SSE");
 
+            const questionMsgId = `question-${tool_use_id}`;
+            const questionNow = new Date().toISOString();
+            const questionSeq = getNextSequence(internalSessionId);
+            const questionDataJson = JSON.stringify({
+                tool_use_id: toolUseId,
+                questions: tool_input.questions,
+                source: sessionSource
+            });
+
+            // DB에 저장
+            db.prepare(`
+                INSERT INTO messages (id, session_id, role, content, timestamp, sequence, question_data, question_submitted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(questionMsgId, internalSessionId, "assistant", "", questionNow, questionSeq, questionDataJson, 0);
+
+            console.log(`[HOOKS] AskUserQuestion saved to DB: ${questionMsgId}`);
+
+            // SSE 전송
             sseManager.broadcastToSession(internalSessionId, {
                 type: "ask_user_question",
                 sessionId: internalSessionId,
-                toolUseId: toolUseId,
+                toolUseId: tool_use_id,
                 questions: tool_input.questions,
-                source: sessionSource // CLI vs Web 구분용
+                source: sessionSource,
+                sequence: questionSeq,
+                createdAt: questionNow
             });
         }
 
-        // PostToolUse: AskUserQuestion 완료 → question_answered SSE
+        // PostToolUse: AskUserQuestion 완료 → DB 업데이트 + question_answered SSE
         if ((type === 'post' || !type) && tool_name === 'AskUserQuestion') {
-            console.log("[HOOKS] AskUserQuestion PostToolUse: Broadcasting answer via SSE");
+            console.log("[HOOKS] AskUserQuestion PostToolUse: Updating DB and broadcasting answer via SSE, tool_use_id:", tool_use_id);
 
             const answers = parseQuestionAnswers(tool_input, tool_response);
+            const questionMsgId = `question-${tool_use_id}`;
+
+            // DB 업데이트: question_submitted = 1
+            const updateResult = db.prepare(`
+                UPDATE messages
+                SET question_submitted = 1
+                WHERE id = ?
+            `).run(questionMsgId);
+
+            console.log(`[HOOKS] AskUserQuestion marked as submitted: ${questionMsgId}, changes: ${updateResult.changes}`);
 
             sseManager.broadcastToSession(internalSessionId, {
                 type: "question_answered",
@@ -323,15 +365,17 @@ router.post("/tool-use", async (req, res) => {
 
             // Save message to database
             const messageId = randomUUID();
+            const seq = getNextSequence(internalSessionId);
             db.prepare(`
-                INSERT INTO messages (id, session_id, role, content, timestamp)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO messages (id, session_id, role, content, timestamp, sequence)
+                VALUES (?, ?, ?, ?, ?, ?)
             `).run(
                 messageId,
                 internalSessionId,
                 messageContent.role,
                 messageContent.content,
-                now
+                now,
+                seq
             );
 
             console.log(`[HOOKS] Message created from tool use: ${messageId}`);
@@ -346,7 +390,8 @@ router.post("/tool-use", async (req, res) => {
                     role: messageContent.role,
                     content: messageContent.content,
                     toolUsages: messageContent.toolUsages,
-                    createdAt: now
+                    createdAt: now,
+                    sequence: seq
                 }
             });
 
@@ -363,10 +408,11 @@ router.post("/tool-use", async (req, res) => {
 
                     for (const { uuid, text } of newTexts) {
                         const assistantMsgId = randomUUID();
+                        const assistantSeq = getNextSequence(internalSessionId);
                         db.prepare(`
-                            INSERT INTO messages (id, session_id, role, content, timestamp)
-                            VALUES (?, ?, ?, ?, ?)
-                        `).run(assistantMsgId, internalSessionId, "assistant", text, now);
+                            INSERT INTO messages (id, session_id, role, content, timestamp, sequence)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        `).run(assistantMsgId, internalSessionId, "assistant", text, now, assistantSeq);
 
                         sseManager.broadcastToSession(internalSessionId, {
                             type: "assistant_message",
@@ -376,7 +422,8 @@ router.post("/tool-use", async (req, res) => {
                                 sessionId: internalSessionId,
                                 role: "assistant",
                                 content: text,
-                                createdAt: now
+                                createdAt: now,
+                                sequence: assistantSeq
                             }
                         });
 
@@ -461,8 +508,9 @@ router.post("/user-prompt", async (req, res) => {
         // 사용자 메시지 DB 저장
         const messageId = randomUUID();
         const now = new Date().toISOString();
-        db.prepare(`INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)`)
-            .run(messageId, internalSessionId, "user", prompt, now);
+        const userSeq = getNextSequence(internalSessionId);
+        db.prepare(`INSERT INTO messages (id, session_id, role, content, timestamp, sequence) VALUES (?, ?, ?, ?, ?, ?)`)
+            .run(messageId, internalSessionId, "user", prompt, now, userSeq);
 
         console.log(`[HOOKS] UserPromptSubmit: User message saved: ${messageId}`);
 
@@ -481,7 +529,8 @@ router.post("/user-prompt", async (req, res) => {
                 sessionId: internalSessionId,
                 role: "user",
                 content: prompt,
-                createdAt: now
+                createdAt: now,
+                sequence: userSeq
             }
         });
 
@@ -728,10 +777,11 @@ router.post("/stop", async (req, res) => {
                 if (newTexts.length > 0) {
                     for (const { uuid, text } of newTexts) {
                         const assistantMessageId = randomUUID();
+                        const stopSeq = getNextSequence(internalSessionId);
                         db.prepare(`
-                            INSERT INTO messages (id, session_id, role, content, timestamp)
-                            VALUES (?, ?, ?, ?, ?)
-                        `).run(assistantMessageId, internalSessionId, "assistant", text, now);
+                            INSERT INTO messages (id, session_id, role, content, timestamp, sequence)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        `).run(assistantMessageId, internalSessionId, "assistant", text, now, stopSeq);
 
                         sseManager.broadcastToSession(internalSessionId, {
                             type: "assistant_message",
@@ -741,7 +791,8 @@ router.post("/stop", async (req, res) => {
                                 sessionId: internalSessionId,
                                 role: "assistant",
                                 content: text,
-                                createdAt: now
+                                createdAt: now,
+                                sequence: stopSeq
                             }
                         });
 

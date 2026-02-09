@@ -49,7 +49,10 @@ function getServerPort(cwd) {
 process.stdin.on('end', () => {
     try {
         const hookData = JSON.parse(inputData);
-        const { session_id, cwd, tool_name, tool_input, tool_response } = hookData;
+        const { session_id, cwd, tool_name, tool_input, tool_response, tool_use_id } = hookData;
+
+        // 명령줄 인자로 'pre' 전달 시 PreToolUse
+        const isPreToolUse = process.argv[2] === 'pre';
 
         // 서버 포트 확인 (SessionStart hook이 서버 시작을 담당)
         const port = getServerPort(cwd);
@@ -62,7 +65,9 @@ process.stdin.on('end', () => {
 
         // hey-claude 서버로 전송
         const payload = JSON.stringify({
+            type: isPreToolUse ? 'pre' : 'post',
             sessionId: session_id,
+            toolUseId: tool_use_id,
             projectPath: cwd,
             toolName: tool_name,
             toolInput: tool_input,

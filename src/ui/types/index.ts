@@ -62,6 +62,7 @@ export interface Message {
     images?: string[];
     changes?: FileChanges;
     createdAt: string;
+    sequence?: number; // 메시지 순서 보장용
     isQuestion?: boolean; // 질문 여부 (type: "question"일 때 true)
     questionData?: QuestionData; // AskUserQuestion 구조화된 데이터
     questionSubmitted?: boolean; // 답변 제출 여부

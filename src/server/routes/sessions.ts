@@ -130,12 +130,12 @@ router.get("/:id/messages", async (req, res) => {
         if (before) {
             // 이전 메시지 로드 (커서 기반)
             messages = db.prepare(
-                "SELECT * FROM messages WHERE session_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?"
+                "SELECT * FROM messages WHERE session_id = ? AND timestamp < ? ORDER BY timestamp DESC, sequence DESC LIMIT ?"
             ).all(id, before, limit);
         } else {
             // 최신 메시지 로드 (첫 요청)
             messages = db.prepare(
-                "SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?"
+                "SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp DESC, sequence DESC LIMIT ?"
             ).all(id, limit);
         }
 

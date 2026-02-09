@@ -106,9 +106,9 @@ const setupCleanup = (projectPath: string): void => {
 /**
  * 명령어 캐시 갱신 (DB에서 먼저 로드, 백그라운드에서 최신 데이터 갱신)
  */
-const refreshCommandsCache = async (projectPath: string): Promise<void> => {
+const refreshCommandsCache = async (): Promise<void> => {
     // 1. DB에서 먼저 로드 (즉시 사용 가능)
-    const dbCommands = loadCommandsFromDB(projectPath);
+    const dbCommands = loadCommandsFromDB();
     if (dbCommands.length > 0) {
         commandsCache = dbCommands;
         console.log(`[COMMANDS] Loaded ${dbCommands.length} commands from DB (instant)`);
@@ -117,11 +117,11 @@ const refreshCommandsCache = async (projectPath: string): Promise<void> => {
     // 2. 백그라운드에서 최신 데이터 갱신
     try {
         console.log("[COMMANDS] Refreshing from filesystem/CLI (background)...");
-        const freshCommands = await getAllCommands(projectPath);
+        const freshCommands = await getAllCommands(process.cwd());
         commandsCache = freshCommands;
 
         // 3. DB 업데이트
-        saveCommandsToDB(projectPath, freshCommands);
+        saveCommandsToDB(freshCommands);
 
         const localCount = freshCommands.filter((cmd) => cmd.source === "local").length;
         const builtinCount = freshCommands.filter((cmd) => cmd.source === "builtin").length;
@@ -258,7 +258,7 @@ const startServer = async (
         await startServer(projectPath, DEFAULT_PORT);
 
         // 9. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
-        refreshCommandsCache(projectPath);
+        refreshCommandsCache();
     } catch (err) {
         console.error("Failed to start server:", err);
         process.exit(1);

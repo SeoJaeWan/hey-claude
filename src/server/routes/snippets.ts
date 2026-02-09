@@ -38,7 +38,7 @@ const rowToSnippet = (row: SnippetRow): Snippet => ({
 });
 
 // GET /api/snippets - 스니펫 목록 조회
-router.get("/", async (req, res) => {
+router.get("/", async (_req, res) => {
     try {
         const db = getDatabase();
         const rows = db.prepare("SELECT * FROM snippets ORDER BY created_at DESC").all() as SnippetRow[];

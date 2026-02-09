@@ -96,6 +96,30 @@ const createTables = (database: Database.Database): void => {
         }
     }
 
+    // sequence 컬럼 추가 (마이그레이션) - 메시지 순서 보장용
+    try {
+        database.exec(`ALTER TABLE messages ADD COLUMN sequence INTEGER`);
+        console.log("[DATABASE] Added sequence column to messages table");
+
+        // 기존 메시지에 sequence 값 부여 (timestamp 순서대로)
+        database.exec(`
+            UPDATE messages
+            SET sequence = (
+                SELECT COUNT(*)
+                FROM messages m2
+                WHERE m2.session_id = messages.session_id
+                AND (m2.timestamp < messages.timestamp
+                     OR (m2.timestamp = messages.timestamp AND m2.id < messages.id))
+            ) + 1
+        `);
+        console.log("[DATABASE] Assigned sequence values to existing messages");
+    } catch (error) {
+        // 컬럼이 이미 존재하면 오류 무시
+        if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
+            console.error("[DATABASE] Error adding sequence column:", error);
+        }
+    }
+
     // tool_usages 테이블
     database.exec(`
         CREATE TABLE IF NOT EXISTS tool_usages (

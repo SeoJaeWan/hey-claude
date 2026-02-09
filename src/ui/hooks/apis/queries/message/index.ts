@@ -20,6 +20,7 @@ const convertMessage = (msg: any): Message => ({
       : msg.changes
     : undefined,
   createdAt: msg.timestamp || msg.created_at || msg.createdAt,
+  sequence: msg.sequence,
   isQuestion: msg.isQuestion || msg.is_question || false,
   questionData:
     msg.questionData ||
@@ -87,7 +88,14 @@ export const useMessagesQuery = (sessionId?: string) => {
     select: (data) => ({
       messages: [...data.pages]
         .reverse()
-        .flatMap((p) => p.data.map(convertMessage)),
+        .flatMap((p) => p.data.map(convertMessage))
+        .sort((a, b) => {
+          // 1차: timestamp 기준 정렬
+          const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          if (timeDiff !== 0) return timeDiff;
+          // 2차: sequence 기준 정렬 (같은 timestamp일 경우)
+          return (a.sequence ?? 0) - (b.sequence ?? 0);
+        }),
       hasMore: data.pages[data.pages.length - 1]?.hasMore ?? false,
     }),
   });

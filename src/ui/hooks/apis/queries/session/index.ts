@@ -4,6 +4,42 @@ import {api} from "../../../../utils/api";
 import type {Session, SessionStreamStatus} from "../../../../types";
 import {useSSEContext} from "../../../../contexts/sse";
 
+// 메시지를 타임스탬프 + sequence 기준으로 정렬된 위치에 삽입하는 헬퍼
+const insertMessageSorted = (pages: any[], newMsg: any): any[] => {
+    // 마지막 페이지에서 올바른 위치를 찾아 삽입
+    const lastPageIndex = pages.length - 1;
+    const newMsgTime = new Date(newMsg.timestamp).getTime();
+    const newMsgSeq = newMsg.sequence ?? Number.MAX_SAFE_INTEGER;
+
+    return pages.map((page, i) => {
+        if (i !== lastPageIndex) return page;
+
+        // 마지막 페이지의 메시지들에서 올바른 삽입 위치 찾기
+        const data = [...page.data];
+        let insertIndex = data.length; // 기본: 맨 끝
+
+        // 역순으로 탐색하여 새 메시지보다 이전인 첫 메시지를 찾음
+        for (let j = data.length - 1; j >= 0; j--) {
+            const msgTime = new Date(data[j].timestamp).getTime();
+            const msgSeq = data[j].sequence ?? 0;
+
+            // timestamp가 같으면 sequence로 비교
+            if (msgTime < newMsgTime || (msgTime === newMsgTime && msgSeq <= newMsgSeq)) {
+                insertIndex = j + 1;
+                break;
+            }
+            if (j === 0) {
+                insertIndex = 0; // 모든 메시지보다 이전
+            }
+        }
+
+        // 삽입
+        data.splice(insertIndex, 0, newMsg);
+
+        return {...page, data};
+    });
+};
+
 // snake_case → camelCase 변환 함수
 const mapSession = (raw: any): Session => ({
     id: raw.id,
@@ -251,14 +287,14 @@ export const useSSEConnection = (
 
                 queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
-                    const lastPageIndex = old.pages.length - 1;
                     const rawMsg = {
                         id: message.id,
                         session_id: message.sessionId,
                         role: message.role,
                         content: message.content,
                         toolUsages: message.toolUsages,
-                        timestamp: message.createdAt
+                        timestamp: message.createdAt,
+                        sequence: message.sequence
                     };
 
                     // 중복 체크
@@ -267,7 +303,7 @@ export const useSSEConnection = (
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
+                        pages: insertMessageSorted(old.pages, rawMsg)
                     };
                 });
             }
@@ -284,13 +320,13 @@ export const useSSEConnection = (
 
                 queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
-                    const lastPageIndex = old.pages.length - 1;
                     const rawMsg = {
                         id: questionMsgId,
                         session_id: sessionId,
                         role: "assistant",
                         content: "",
-                        timestamp: new Date().toISOString(),
+                        timestamp: data.createdAt || new Date().toISOString(),
+                        sequence: data.sequence,
                         isQuestion: true,
                         questionData
                     };
@@ -301,7 +337,7 @@ export const useSSEConnection = (
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
+                        pages: insertMessageSorted(old.pages, rawMsg)
                     };
                 });
             }
@@ -312,13 +348,13 @@ export const useSSEConnection = (
 
                 queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
-                    const lastPageIndex = old.pages.length - 1;
                     const rawMsg = {
                         id: message.id,
                         session_id: message.sessionId,
                         role: "assistant",
                         content: message.content,
-                        timestamp: message.createdAt
+                        timestamp: message.createdAt,
+                        sequence: message.sequence
                     };
 
                     // 중복 체크
@@ -327,7 +363,7 @@ export const useSSEConnection = (
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
+                        pages: insertMessageSorted(old.pages, rawMsg)
                     };
                 });
             }
@@ -338,13 +374,13 @@ export const useSSEConnection = (
 
                 queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
-                    const lastPageIndex = old.pages.length - 1;
                     const rawMsg = {
                         id: message.id,
                         session_id: message.sessionId,
                         role: "user",
                         content: message.content,
-                        timestamp: message.createdAt
+                        timestamp: message.createdAt,
+                        sequence: message.sequence
                     };
 
                     // 중복 체크
@@ -353,7 +389,7 @@ export const useSSEConnection = (
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
+                        pages: insertMessageSorted(old.pages, rawMsg)
                     };
                 });
             }
@@ -366,7 +402,6 @@ export const useSSEConnection = (
 
                 queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
-                    const lastPageIndex = old.pages.length - 1;
                     const rawMsg = {
                         id: permMsgId,
                         session_id: sessionId,
@@ -387,7 +422,7 @@ export const useSSEConnection = (
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
+                        pages: insertMessageSorted(old.pages, rawMsg)
                     };
                 });
             }
