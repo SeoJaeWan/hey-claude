@@ -43,6 +43,8 @@ export interface QuestionAnswer {
     questionIndex: number;       // 질문 인덱스 (0부터 시작)
     question: string;            // 질문 텍스트 (원본)
     selectedOptions: string[];   // 선택된 옵션들 (label 배열)
+    selectedIndices?: number[];  // 선택된 옵션의 인덱스 (PTY 방향키 시퀀스용)
+    isOther?: boolean;           // Other 텍스트 입력인지 여부
 }
 
 export interface PermissionRequestData {

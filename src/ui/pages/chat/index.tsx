@@ -49,7 +49,7 @@ const ChatPage = () => {
   const { stopSubmitting } = useSubmitQuestionAnswer();
 
   // 작업 중단
-  const { stopMessage, isStopping } = useStopMessage();
+  const { stopMessage } = useStopMessage();
 
   // SSE 연결 (Hooks 이벤트 수신) - turn_complete에서 로딩 해제
   const sseCallbacks = useMemo(

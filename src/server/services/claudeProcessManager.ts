@@ -244,7 +244,41 @@ class ClaudeProcessManager {
 
     /**
      * AskUserQuestion 답변을 PTY stdin으로 전송
-     * 답변 텍스트 + Enter 전송
+     * 각 줄마다 Enter 전송 (복수 질문 지원, 딜레이 포함)
+     */
+    async writeAnswerAsync(sessionId: string, answer: string): Promise<boolean> {
+        const cp = this.processes.get(sessionId);
+        if (!cp) {
+            console.log(`[PTY MANAGER] No process found for answer: session ${sessionId}`);
+            return false;
+        }
+
+        cp.lastActivityAt = new Date();
+        cp.state = 'processing';
+
+        // 복수 질문인 경우 각 줄마다 Enter 전송 (딜레이 포함)
+        const lines = answer.split('\n');
+        console.log(`[PTY MANAGER] Sending ${lines.length} answer line(s) for session ${sessionId}`);
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line) {
+                // 각 줄 전송 후 Enter
+                cp.pty.write(line + '\r');
+                console.log(`[PTY MANAGER] Line ${i + 1}: "${line}"`);
+
+                // 다음 줄 전에 딜레이 (TUI가 다음 질문을 렌더링할 시간)
+                if (i < lines.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * AskUserQuestion 답변을 PTY stdin으로 전송 (동기 버전 - 단일 답변용)
      */
     writeAnswer(sessionId: string, answer: string): boolean {
         const cp = this.processes.get(sessionId);
@@ -256,7 +290,7 @@ class ClaudeProcessManager {
         cp.lastActivityAt = new Date();
         cp.state = 'processing';
 
-        // 답변 텍스트 전송 후 Enter
+        // 단일 답변: 텍스트 + Enter
         cp.pty.write(answer + '\r');
         console.log(`[PTY MANAGER] Answer sent to PTY stdin for session ${sessionId}`);
         return true;

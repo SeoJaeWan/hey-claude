@@ -82,19 +82,23 @@ const QuestionCard = ({sessionId, questionData, isSubmitted = false, questionAns
     const handleSubmit = () => {
         if (!isValid || isSubmitting || isSubmitted) return;
 
-        // selections → QuestionAnswer[] 변환 (Other 입력 포함)
+        // selections → QuestionAnswer[] 변환 (Other 입력 포함, selectedIndices 추가)
         const answers: QuestionAnswer[] = questions.map((q, idx) => {
-            const selectedLabels = selections[idx]?.map(optIdx => q.options[optIdx].label) || [];
+            const selectedIndices = selections[idx] || [];
+            const selectedLabels = selectedIndices.map(optIdx => q.options[optIdx].label);
+            const isOther = otherSelected[idx] && otherText[idx]?.trim();
 
             // Other 선택 시 텍스트 추가
-            if (otherSelected[idx] && otherText[idx]?.trim()) {
+            if (isOther) {
                 selectedLabels.push(otherText[idx].trim());
             }
 
             return {
                 questionIndex: idx,
                 question: q.question,
-                selectedOptions: selectedLabels
+                selectedOptions: selectedLabels,
+                selectedIndices: selectedIndices,  // 서버에서 방향키 시퀀스 생성용
+                isOther: !!isOther                 // Other 텍스트 입력 여부
             };
         });
 

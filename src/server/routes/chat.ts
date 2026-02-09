@@ -33,19 +33,26 @@ interface QuestionAnswer {
     questionIndex: number;
     question: string;
     selectedOptions: string[];
+    selectedIndices?: number[]; // 선택한 옵션의 인덱스 (0부터 시작)
+    isOther?: boolean; // Other 텍스트 입력인지
 }
 
-// 유틸리티: 사용자 답변을 자연어 텍스트로 변환 (PTY stdin용)
-const formatAnswersAsText = (answers: QuestionAnswer[]): string => {
-    if (answers.length === 1) {
-        // 단일 질문: 선택된 옵션만 전송
-        return answers[0].selectedOptions.join(", ");
+// 유틸리티: 방향키 시퀀스 생성 (옵션 인덱스 기반)
+// Claude TUI에서 AskUserQuestion은 방향키로 옵션 선택 후 Enter
+const formatAnswerAsKeySequence = (answer: QuestionAnswer): string => {
+    // Other 텍스트 입력인 경우: 텍스트 그대로 반환 (마지막 옵션 "Other" 선택 후 입력)
+    if (answer.isOther) {
+        return answer.selectedOptions.join(", ");
     }
 
-    // 복수 질문: 번호 + 답변 형식
-    return answers
-        .map(a => `${a.questionIndex + 1}. ${a.selectedOptions.join(", ")}`)
-        .join("\n");
+    // 옵션 선택인 경우: 첫 번째 선택된 인덱스 기준으로 방향키 생성
+    // 기본 커서는 첫 번째 옵션(인덱스 0)에 위치
+    const optionIndex = answer.selectedIndices?.[0] ?? 0;
+
+    // 인덱스만큼 ↓ 키 + Enter
+    // 방향키 Down = \x1b[B (ANSI escape sequence)
+    const downArrows = '\x1b[B'.repeat(optionIndex);
+    return downArrows; // Enter는 writeAnswer에서 추가됨
 };
 
 // POST /api/chat/start - PTY 세션 시작
@@ -266,19 +273,32 @@ router.post("/tool-result", async (req, res) => {
             return;
         }
 
-        // 3. 답변 텍스트 포맷팅
-        const answerText = formatAnswersAsText(answers);
-        console.log("[TOOL RESULT] Answer text:", answerText);
-
-        // 4. 로딩 상태 SSE broadcast
+        // 3. 로딩 상태 SSE broadcast
         sessionStatusManager.setStatus(sessionId, "streaming");
         sseManager.broadcastToSession(sessionId, {
             type: "loading_start",
             sessionId
         });
 
-        // 5. PTY stdin으로 답변 전송
-        const success = claudeProcessManager.writeAnswer(sessionId, answerText);
+        // 4. PTY stdin으로 답변 전송 (각 질문마다 방향키 시퀀스 + Enter)
+        let success = true;
+        for (let i = 0; i < answers.length; i++) {
+            const answer = answers[i];
+            const keySequence = formatAnswerAsKeySequence(answer);
+            console.log(`[TOOL RESULT] Q${i + 1}: selectedIndices=${JSON.stringify(answer.selectedIndices)}, isOther=${answer.isOther}, keySequence="${keySequence.replace(/\x1b/g, '\\x1b')}"`);
+
+            // 방향키 시퀀스 전송 후 Enter
+            const written = claudeProcessManager.writeAnswer(sessionId, keySequence);
+            if (!written) {
+                success = false;
+                break;
+            }
+
+            // 다음 질문 전에 딜레이 (TUI가 다음 질문을 렌더링할 시간)
+            if (i < answers.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
 
         if (success) {
             console.log("[TOOL RESULT] Answer sent to PTY stdin");
