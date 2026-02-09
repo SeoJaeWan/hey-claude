@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * PermissionRequest Hook - 권한 요청 처리
- * Claude Code가 권한 요청 프롬프트를 표시할 때 hey-claude 서버로 전달하고 사용자 결정을 대기
+ * PermissionRequest Hook - 권한 요청 알림
+ * Claude Code가 권한 요청 프롬프트를 표시할 때 hey-claude 서버로 전달
+ * CLI 다이얼로그는 그대로 표시되고, Web UI에서는 모니터링만 가능
  */
 
 const fs = require('fs');
@@ -22,138 +23,53 @@ process.stdin.on('end', async () => {
 
         // server.lock 파일에서 포트 확인
         const lockPath = path.join(cwd, '.hey-claude', 'server.lock');
-        let port = 7777;
 
-        if (fs.existsSync(lockPath)) {
+        if (!fs.existsSync(lockPath)) {
+            // 서버 없음 - 빈 응답 (CLI가 자체 다이얼로그 표시)
+            process.exit(0);
+        }
+
+        let port;
+        try {
             const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf-8'));
             port = lockData.port;
 
             // PID 검증
-            try {
-                process.kill(lockData.pid, 0);
-            } catch {
-                // 서버 죽음 - deny로 처리
-                outputDecision('deny');
-                return;
-            }
-        } else {
-            // lock 파일 없음 - deny로 처리
-            outputDecision('deny');
-            return;
+            process.kill(lockData.pid, 0);
+        } catch {
+            // 서버 죽음 - 빈 응답 (CLI가 자체 다이얼로그 표시)
+            process.exit(0);
         }
 
-        // 1. 권한 요청 등록
-        const registerPayload = JSON.stringify({
+        // 서버에 권한 요청 알림 (fire-and-forget, 응답 기다리지 않음)
+        const payload = JSON.stringify({
             sessionId: session_id,
             toolName: tool_name,
             toolInput: tool_input || {},
         });
 
-        let result;
-        try {
-            result = await makeRequest(port, '/api/hooks/permission-request', 'POST', registerPayload);
-        } catch (error) {
-            // 등록 실패 - deny로 처리
-            outputDecision('deny');
-            return;
-        }
-
-        // 2. 구독자 확인 - 없으면 CLI 기본 다이얼로그로 넘김
-        const { requestId, hasSubscribers } = result;
-        if (!hasSubscribers) {
-            // 구독자 없음 - 아무것도 출력하지 않고 종료 (CLI가 자체 처리)
-            process.exit(0);
-        }
-
-        // 3. 폴링 루프 (무한 대기, hooks.json 타임아웃이 안전망)
-        const pollInterval = 200; // 200ms
-
-        while (true) {
-            try {
-                const pollResult = await makeRequest(port, `/api/hooks/permission-poll?requestId=${requestId}`, 'GET');
-
-                if (pollResult.decided) {
-                    // 사용자가 결정함
-                    outputDecision(pollResult.behavior || 'deny');
-                    return;
-                }
-
-                // 아직 결정 안 됨 - 대기
-                await sleep(pollInterval);
-            } catch (error) {
-                // 폴링 실패 - deny로 처리
-                outputDecision('deny');
-                return;
-            }
-        }
-    } catch (error) {
-        outputDecision('deny');
-    }
-});
-
-/**
- * HTTP 요청 헬퍼
- */
-function makeRequest(port, path, method, body = null) {
-    return new Promise((resolve, reject) => {
-        const options = {
+        const req = http.request({
             hostname: 'localhost',
             port: port,
-            path: path,
-            method: method,
-            headers: body ? {
+            path: '/api/hooks/permission-notify',
+            method: 'POST',
+            headers: {
                 'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(body),
-            } : {},
-        };
-
-        const req = http.request(options, (res) => {
-            let data = '';
-
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-
-            res.on('end', () => {
-                try {
-                    const parsed = JSON.parse(data);
-                    resolve(parsed);
-                } catch {
-                    reject(new Error('Invalid JSON response'));
-                }
-            });
+                'Content-Length': Buffer.byteLength(payload),
+            },
         });
 
-        req.on('error', (error) => {
-            reject(error);
+        req.on('error', () => {
+            // 에러 무시 - CLI 다이얼로그는 정상 표시
         });
 
-        if (body) {
-            req.write(body);
-        }
+        req.write(payload);
         req.end();
-    });
-}
 
-/**
- * Sleep 헬퍼
- */
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * 결정 출력 및 종료
- */
-function outputDecision(behavior) {
-    const output = JSON.stringify({
-        hookSpecificOutput: {
-            hookEventName: "PermissionRequest",
-            decision: {
-                behavior: behavior
-            }
-        }
-    });
-    console.log(output);
-    process.exit(0);
-}
+        // 빈 응답으로 종료 → CLI가 자체 다이얼로그 표시
+        process.exit(0);
+    } catch (error) {
+        // 에러 발생해도 빈 응답 → CLI 다이얼로그 표시
+        process.exit(0);
+    }
+});

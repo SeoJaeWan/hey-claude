@@ -190,7 +190,9 @@
         "expired": "만료됨",
         "waiting": "결정을 기다리는 중...",
         "showMore": "더 보기",
-        "showLess": "접기"
+        "showLess": "접기",
+        "cliSession": "CLI 세션",
+        "respondInCli": "터미널에서 응답해주세요"
     },
     "question": {
         "other": "기타",
@@ -201,6 +203,8 @@
         "multiSelect": "(복수 선택 가능)",
         "submit": "답변 제출",
         "submitting": "제출 중...",
-        "allRequired": "모든 질문에 답변해주세요"
+        "allRequired": "모든 질문에 답변해주세요",
+        "cliSession": "CLI 세션",
+        "respondInCli": "터미널에서 응답해주세요"
     }
 }

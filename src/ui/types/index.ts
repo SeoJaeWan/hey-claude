@@ -36,6 +36,7 @@ export interface QuestionItem {
 export interface QuestionData {
     tool_use_id: string;
     questions: QuestionItem[];
+    source?: "terminal" | "web"; // CLI vs Web 세션 구분
 }
 
 export interface QuestionAnswer {
@@ -50,6 +51,7 @@ export interface PermissionRequestData {
     toolInput: any;
     decided?: boolean;
     behavior?: "allow" | "deny";
+    source?: "terminal" | "web"; // CLI vs Web 세션 구분
 }
 
 export interface Message {

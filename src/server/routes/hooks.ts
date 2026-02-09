@@ -246,6 +246,7 @@ router.post("/tool-use", async (req, res) => {
         // 세션 조회 (자동 매핑 포함)
         let session = resolveInternalSession(claudeSessionId);
         let internalSessionId: string;
+        let sessionSource: string = "terminal"; // 기본값
 
         if (!session) {
             // 터미널에서 생성된 세션 - 새로 등록
@@ -258,6 +259,9 @@ router.post("/tool-use", async (req, res) => {
             `).run(internalSessionId, "claude-code", claudeSessionId, "terminal", "active", now, now);
         } else {
             internalSessionId = session.id;
+            // 세션 source 조회
+            const sessionData = db.prepare("SELECT source FROM sessions WHERE id = ?").get(internalSessionId) as { source: string } | undefined;
+            sessionSource = sessionData?.source || "terminal";
         }
 
         // PreToolUse: AskUserQuestion 감지 시 SSE로 프론트엔드에 전달
@@ -268,7 +272,8 @@ router.post("/tool-use", async (req, res) => {
                 type: "ask_user_question",
                 sessionId: internalSessionId,
                 toolUseId: toolUseId,
-                questions: tool_input.questions
+                questions: tool_input.questions,
+                source: sessionSource // CLI vs Web 구분용
             });
         }
 
@@ -495,7 +500,58 @@ router.post("/user-prompt", async (req, res) => {
     }
 });
 
-// POST /api/hooks/permission-request - PermissionRequest hook (권한 요청 등록)
+// POST /api/hooks/permission-notify - PermissionRequest hook (알림 전용, CLI 다이얼로그는 그대로 표시)
+router.post("/permission-notify", async (req, res) => {
+    try {
+        const { sessionId: claudeSessionId, toolName, toolInput } = req.body;
+        console.log("[HOOKS] PermissionNotify received:", { claudeSessionId, toolName });
+
+        if (!claudeSessionId || !toolName) {
+            return res.json({ success: true }); // 에러여도 빈 응답
+        }
+
+        const db = getDatabase();
+
+        // 세션 조회 (자동 매핑 포함)
+        let session = resolveInternalSession(claudeSessionId);
+        let internalSessionId: string;
+        let sessionSource: string = "terminal"; // 기본값
+
+        if (!session) {
+            // 터미널에서 생성된 세션 - 새로 등록
+            internalSessionId = randomUUID();
+            const now = new Date().toISOString();
+            db.prepare(`
+                INSERT INTO sessions (id, type, claude_session_id, source, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(internalSessionId, "claude-code", claudeSessionId, "terminal", "active", now, now);
+            sessionMappingCache.set(claudeSessionId, internalSessionId);
+        } else {
+            internalSessionId = session.id;
+            // 세션 source 조회
+            const sessionData = db.prepare("SELECT source FROM sessions WHERE id = ?").get(internalSessionId) as { source: string } | undefined;
+            sessionSource = sessionData?.source || "terminal";
+        }
+
+        // SSE로 프론트엔드에 알림 (source 정보 포함)
+        sseManager.broadcastToSession(internalSessionId, {
+            type: "permission_request",
+            sessionId: internalSessionId,
+            toolName,
+            toolInput: toolInput || {},
+            source: sessionSource // CLI vs Web 구분용
+        });
+
+        console.log(`[HOOKS] PermissionNotify: Notified session ${internalSessionId} (source: ${sessionSource})`);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("[HOOKS] PermissionNotify error:", error);
+        res.json({ success: true }); // 에러여도 빈 응답 (CLI 다이얼로그는 정상 표시)
+    }
+});
+
+// POST /api/hooks/permission-request - PermissionRequest hook (권한 요청 등록) - Web 세션용
 router.post("/permission-request", async (req, res) => {
     try {
         const { sessionId: claudeSessionId, toolName, toolInput } = req.body;

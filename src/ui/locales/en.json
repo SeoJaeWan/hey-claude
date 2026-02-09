@@ -190,7 +190,9 @@
         "expired": "Expired",
         "waiting": "Waiting for your decision...",
         "showMore": "Show more",
-        "showLess": "Show less"
+        "showLess": "Show less",
+        "cliSession": "CLI Session",
+        "respondInCli": "Please respond in the terminal"
     },
     "question": {
         "other": "Other",
@@ -201,6 +203,8 @@
         "multiSelect": "(Multiple selection)",
         "submit": "Submit",
         "submitting": "Submitting...",
-        "allRequired": "Please answer all questions"
+        "allRequired": "Please answer all questions",
+        "cliSession": "CLI Session",
+        "respondInCli": "Please respond in the terminal"
     }
 }

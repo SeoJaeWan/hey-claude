@@ -273,11 +273,12 @@ export const useSSEConnection = (
             }
             // ask_user_question 처리 (PreToolUse Hook)
             else if (data.type === "ask_user_question") {
-                console.log("[SSE] ask_user_question:", data.toolUseId);
+                console.log("[SSE] ask_user_question:", data.toolUseId, "source:", data.source);
 
                 const questionData = {
                     tool_use_id: data.toolUseId,
-                    questions: data.questions
+                    questions: data.questions,
+                    source: data.source || "web" // CLI vs Web 구분
                 };
                 const questionMsgId = `question-${data.toolUseId}`;
 
@@ -358,8 +359,10 @@ export const useSSEConnection = (
             }
             // permission_request 처리 (PermissionRequest Hook)
             else if (data.type === "permission_request") {
-                const permMsgId = `permission-${data.requestId}`;
-                console.log("[SSE] permission_request:", data.requestId);
+                // requestId가 없으면 timestamp 기반 ID 생성 (CLI notify용)
+                const requestId = data.requestId || `notify-${Date.now()}`;
+                const permMsgId = `permission-${requestId}`;
+                console.log("[SSE] permission_request:", requestId, "source:", data.source);
 
                 queryClient.setQueryData(["messages", sessionId], (old: any) => {
                     if (!old) return old;
@@ -371,10 +374,11 @@ export const useSSEConnection = (
                         content: "",
                         timestamp: new Date().toISOString(),
                         permission_data: {
-                            requestId: data.requestId,
+                            requestId: requestId,
                             toolName: data.toolName,
                             toolInput: data.toolInput,
-                            decided: false
+                            decided: false,
+                            source: data.source || "web" // CLI vs Web 구분
                         }
                     };
 
