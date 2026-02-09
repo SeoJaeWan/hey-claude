@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowUp, Paperclip, FileText } from "lucide-react";
+import { ArrowUp, Paperclip, FileText, Square } from "lucide-react";
 import { cn } from "../../../utils/cn";
 import ModelSelect from "../../commons/modelSelect";
 import ProviderSelect from "../../commons/providerSelect";
@@ -46,6 +46,10 @@ interface ChatInputProps {
   // 이미지 관련 (외부에서 관리)
   images?: { id: string; src: string; file: File }[];
   onRemoveImage?: (id: string) => void;
+
+  // Stop 버튼
+  isStreaming?: boolean;
+  onStop?: () => void;
 }
 
 const ChatInput = ({
@@ -62,6 +66,8 @@ const ChatInput = ({
   onProviderChange = () => {},
   images = [],
   onRemoveImage = () => {},
+  isStreaming = false,
+  onStop = () => {},
 }: ChatInputProps) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -550,6 +556,20 @@ const ChatInput = ({
                   onChange={handleFileInputChange}
                   className="hidden"
                 />
+
+                {/* Stop 버튼 (Streaming 중일 때만) */}
+                {isStreaming && onStop && (
+                  <button
+                    onClick={onStop}
+                    className={cn(
+                      "p-2 rounded-md transition-all",
+                      "bg-red-500 hover:bg-red-600 text-white",
+                    )}
+                    title="Stop"
+                  >
+                    <Square size={14} fill="currentColor" />
+                  </button>
+                )}
 
                 {/* 전송 */}
                 <button

@@ -14,6 +14,7 @@ import {
   useMessagesQuery,
   useSendMessage,
   useSubmitQuestionAnswer,
+  useStopMessage,
 } from "../../hooks/apis/queries/message";
 import { useTranslation } from "../../contexts/language";
 
@@ -46,6 +47,9 @@ const ChatPage = () => {
 
   // 답변 제출 (stopSubmitting만 사용 - turn_complete에서 해제)
   const { stopSubmitting } = useSubmitQuestionAnswer();
+
+  // 작업 중단
+  const { stopMessage, isStopping } = useStopMessage();
 
   // SSE 연결 (Hooks 이벤트 수신) - turn_complete에서 로딩 해제
   const sseCallbacks = useMemo(
@@ -145,6 +149,11 @@ const ChatPage = () => {
     setImages([]);
   };
 
+  const handleStop = () => {
+    if (!sessionId) return;
+    stopMessage(sessionId);
+  };
+
   // Cleanup blob URLs on unmount
   useEffect(() => {
     return () => {
@@ -188,7 +197,7 @@ const ChatPage = () => {
         mode="claude-code"
         sessionId={sessionId}
         onSend={handleSend}
-        disabled={isSending || isStreaming || hasUnansweredQuestion}
+        disabled={hasUnansweredQuestion}
         showSummaryButton={true}
         showFeedbackToggle={true}
         selectedModel={DEFAULT_CLAUDE_MODEL}
@@ -197,6 +206,8 @@ const ChatPage = () => {
         onProviderChange={noop}
         images={images}
         onRemoveImage={handleRemoveImage}
+        isStreaming={isStreaming}
+        onStop={handleStop}
       />
 
       {/* 드래그 오버레이 */}

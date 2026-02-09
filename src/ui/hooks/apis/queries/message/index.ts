@@ -204,3 +204,25 @@ export const useSubmitQuestionAnswer = () => {
 
   return { submitAnswer, isSubmitting, error, stopSubmitting };
 };
+
+// 작업 중단 Hook
+export const useStopMessage = () => {
+  const [isStopping, setIsStopping] = useState(false);
+
+  const stopMessage = useCallback(async (sessionId: string) => {
+    setIsStopping(true);
+    try {
+      await fetch("/api/chat/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+    } catch (err) {
+      console.error("[useStopMessage] Error:", err);
+    } finally {
+      setIsStopping(false);
+    }
+  }, []);
+
+  return { stopMessage, isStopping };
+};
