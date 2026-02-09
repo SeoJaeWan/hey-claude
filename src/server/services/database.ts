@@ -43,15 +43,12 @@ const createTables = (database: Database.Database): void => {
             claude_session_id TEXT,
             model TEXT,
             name TEXT,
-            project_path TEXT,
             source TEXT DEFAULT 'web',
             status TEXT DEFAULT 'active',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
 
-        CREATE INDEX IF NOT EXISTS idx_sessions_project
-            ON sessions(project_path);
         CREATE INDEX IF NOT EXISTS idx_sessions_updated
             ON sessions(updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_sessions_claude_session
@@ -137,7 +134,6 @@ const createTables = (database: Database.Database): void => {
     database.exec(`
         CREATE TABLE IF NOT EXISTS snippets (
             id TEXT PRIMARY KEY,
-            project_path TEXT NOT NULL,
             trigger TEXT NOT NULL,
             name TEXT NOT NULL,
             content TEXT NOT NULL,
@@ -147,17 +143,14 @@ const createTables = (database: Database.Database): void => {
             updated_at TEXT NOT NULL
         );
 
-        CREATE INDEX IF NOT EXISTS idx_snippets_project
-            ON snippets(project_path);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_snippets_trigger
-            ON snippets(project_path, trigger);
+            ON snippets(trigger);
     `);
 
     // commands 테이블
     database.exec(`
         CREATE TABLE IF NOT EXISTS commands (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_path TEXT NOT NULL,
             name TEXT NOT NULL,
             trigger TEXT NOT NULL,
             description TEXT,
@@ -166,10 +159,8 @@ const createTables = (database: Database.Database): void => {
             updated_at TEXT NOT NULL
         );
 
-        CREATE INDEX IF NOT EXISTS idx_commands_project
-            ON commands(project_path);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_commands_name
-            ON commands(project_path, name);
+            ON commands(name);
     `);
 };
 
@@ -184,7 +175,7 @@ const migrateSnippetsFromJson = (database: Database.Database, projectPath: strin
 
     try {
         // 이미 마이그레이션된 적이 있는지 확인 (DB에 레코드가 있는지)
-        const existingCount = database.prepare("SELECT COUNT(*) as count FROM snippets WHERE project_path = ?").get(projectPath) as { count: number };
+        const existingCount = database.prepare("SELECT COUNT(*) as count FROM snippets").get() as { count: number };
 
         if (existingCount.count > 0) {
             // 이미 마이그레이션됨 - 파일만 백업으로 이동
@@ -219,15 +210,14 @@ const migrateSnippetsFromJson = (database: Database.Database, projectPath: strin
 
         // DB에 삽입
         const insertStmt = database.prepare(`
-            INSERT INTO snippets (id, project_path, trigger, name, content, category, usage_count, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO snippets (id, trigger, name, content, category, usage_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         const insertMany = database.transaction((snippetsToInsert: typeof snippets) => {
             for (const snippet of snippetsToInsert) {
                 insertStmt.run(
                     snippet.id,
-                    projectPath,
                     snippet.trigger,
                     snippet.name,
                     snippet.content,
