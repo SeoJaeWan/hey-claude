@@ -25,6 +25,7 @@ const router: RouterType = Router();
 // 타입 정의
 interface ToolResultRequest {
     sessionId: string;
+    clientId: string;
     toolUseId: string;
     answers: QuestionAnswer[];
 }
@@ -58,14 +59,14 @@ const formatAnswerAsKeySequence = (answer: QuestionAnswer): string => {
 // POST /api/chat/start - PTY 세션 시작
 router.post("/start", async (req, res) => {
     try {
-        const { sessionId, claudeSessionId } = req.body;
-        console.log("[CHAT START] Request received:", { sessionId, claudeSessionId });
+        const { sessionId, clientId, claudeSessionId } = req.body;
+        console.log("[CHAT START] Request received:", { sessionId, clientId, claudeSessionId });
 
-        if (!sessionId) {
+        if (!sessionId || !clientId) {
             res.status(400).json({
                 error: {
                     code: "MISSING_PARAMETERS",
-                    message: "sessionId is required"
+                    message: "sessionId and clientId are required"
                 }
             });
             return;
@@ -88,14 +89,16 @@ router.post("/start", async (req, res) => {
             return;
         }
 
-        // PTY 프로세스 생성/재사용
-        const cp = await claudeProcessManager.getOrCreateProcess(
+        // PTY 프로세스 생성 (clientId 기반)
+        const cp = await claudeProcessManager.createForClient(
+            clientId,
             sessionId,
             claudeSessionId || session.claude_session_id,
             projectPath
         );
 
         console.log("[CHAT START] PTY process ready:", {
+            clientId,
             sessionId: cp.sessionId,
             claudeSessionId: cp.claudeSessionId,
             state: cp.state
@@ -120,14 +123,14 @@ router.post("/start", async (req, res) => {
 // POST /api/chat/send - PTY stdin으로 메시지 전송 (fire-and-forget)
 router.post("/send", async (req, res) => {
     try {
-        const { sessionId, message, images } = req.body;
-        console.log("[CHAT SEND] Request received:", { sessionId, messageLength: message?.length, hasImages: !!images });
+        const { sessionId, clientId, message, images } = req.body;
+        console.log("[CHAT SEND] Request received:", { sessionId, clientId, messageLength: message?.length, hasImages: !!images });
 
-        if (!sessionId || !message) {
+        if (!sessionId || !clientId || !message) {
             res.status(400).json({
                 error: {
                     code: "MISSING_PARAMETERS",
-                    message: "sessionId and message are required"
+                    message: "sessionId, clientId, and message are required"
                 }
             });
             return;
@@ -174,8 +177,9 @@ router.post("/send", async (req, res) => {
 
         // PTY 프로세스가 없으면 자동 생성
         const projectPath = session.project_path || process.cwd();
-        const isNewProcess = !claudeProcessManager.hasProcess(sessionId);
-        await claudeProcessManager.getOrCreateProcess(
+        const isNewProcess = !claudeProcessManager.hasProcess(clientId);
+        await claudeProcessManager.createForClient(
+            clientId,
             sessionId,
             session.claude_session_id,
             projectPath
@@ -191,7 +195,7 @@ router.post("/send", async (req, res) => {
                     if (!resolved) { resolved = true; resolve(); }
                 }, 10000); // 최대 10초
 
-                const unsubscribe = claudeProcessManager.onData(sessionId, (data: string) => {
+                const unsubscribe = claudeProcessManager.onData(clientId, (data: string) => {
                     // TUI가 준비되면 입력 힌트가 표시됨
                     if (data.includes('ctrl+') || data.includes('Ctrl+') || data.includes('Tips') || data.includes('Welcome')) {
                         // 추가 대기 (TUI 렌더링 완료)
@@ -210,12 +214,12 @@ router.post("/send", async (req, res) => {
         }
 
         // PTY stdin으로 메시지 전송 (텍스트와 Enter를 분리 전송)
-        const writeSuccess = claudeProcessManager.write(sessionId, actualMessage);
+        const writeSuccess = claudeProcessManager.write(clientId, actualMessage);
 
         if (writeSuccess) {
             // 텍스트 입력 후 딜레이를 두고 Enter 전송
             await new Promise(resolve => setTimeout(resolve, 500));
-            claudeProcessManager.write(sessionId, '\r');
+            claudeProcessManager.write(clientId, '\r');
             console.log("[CHAT SEND] Message + Enter sent to PTY stdin");
             res.json({ success: true });
         } else {
@@ -241,19 +245,20 @@ router.post("/send", async (req, res) => {
 // POST /api/chat/tool-result - AskUserQuestion 답변을 PTY stdin으로 전송
 router.post("/tool-result", async (req, res) => {
     try {
-        const { sessionId, toolUseId, answers } = req.body as ToolResultRequest;
+        const { sessionId, clientId, toolUseId, answers } = req.body as ToolResultRequest;
         console.log("[TOOL RESULT] Request received:", {
             sessionId,
+            clientId,
             toolUseId,
             answersCount: answers?.length
         });
 
         // 1. 입력 검증
-        if (!sessionId || !answers || !Array.isArray(answers) || answers.length === 0) {
+        if (!sessionId || !clientId || !answers || !Array.isArray(answers) || answers.length === 0) {
             res.status(400).json({
                 error: {
                     code: "INVALID_REQUEST",
-                    message: "sessionId and answers are required"
+                    message: "sessionId, clientId, and answers are required"
                 }
             });
             return;
@@ -288,7 +293,7 @@ router.post("/tool-result", async (req, res) => {
             console.log(`[TOOL RESULT] Q${i + 1}: selectedIndices=${JSON.stringify(answer.selectedIndices)}, isOther=${answer.isOther}, keySequence="${keySequence.replace(/\x1b/g, '\\x1b')}"`);
 
             // 방향키 시퀀스 전송 후 Enter
-            const written = claudeProcessManager.writeAnswer(sessionId, keySequence);
+            const written = claudeProcessManager.writeAnswer(clientId, keySequence);
             if (!written) {
                 success = false;
                 break;
@@ -308,7 +313,7 @@ router.post("/tool-result", async (req, res) => {
             res.status(404).json({
                 error: {
                     code: "NO_ACTIVE_PROCESS",
-                    message: "No active PTY process for this session"
+                    message: "No active PTY process for this client"
                 }
             });
         }
@@ -369,21 +374,21 @@ router.post("/permission-decide", async (req, res) => {
 // POST /api/chat/stop - Claude 작업 중단 (Ctrl+C)
 router.post("/stop", (req, res) => {
     try {
-        const { sessionId } = req.body;
-        console.log("[CHAT STOP] Request received:", { sessionId });
+        const { sessionId, clientId } = req.body;
+        console.log("[CHAT STOP] Request received:", { sessionId, clientId });
 
-        if (!sessionId) {
+        if (!sessionId || !clientId) {
             res.status(400).json({
                 error: {
                     code: "MISSING_PARAMETERS",
-                    message: "sessionId is required"
+                    message: "sessionId and clientId are required"
                 }
             });
             return;
         }
 
         // PTY에 Ctrl+C 시그널 전송 (ESC 03)
-        const success = claudeProcessManager.write(sessionId, '\x03');
+        const success = claudeProcessManager.write(clientId, '\x03');
 
         if (success) {
             // SSE로 프론트엔드에 알림
@@ -398,7 +403,7 @@ router.post("/stop", (req, res) => {
             res.status(404).json({
                 error: {
                     code: "NO_PROCESS",
-                    message: "No active process for this session"
+                    message: "No active process for this client"
                 }
             });
         }
