@@ -21,7 +21,7 @@ const convertMessage = (msg: any): Message => ({
     : undefined,
   createdAt: msg.timestamp || msg.created_at || msg.createdAt,
   sequence: msg.sequence,
-  isQuestion: msg.isQuestion || msg.is_question || false,
+  isQuestion: msg.isQuestion || msg.is_question || !!msg.question_data || false,
   questionData:
     msg.questionData ||
     (msg.question_data
@@ -30,15 +30,28 @@ const convertMessage = (msg: any): Message => ({
         : msg.question_data
       : undefined),
   questionSubmitted: msg.questionSubmitted || msg.question_submitted === 1,
-  questionAnswers: msg.questionAnswers || msg.question_answers,
+  questionAnswers:
+    msg.questionAnswers ||
+    (msg.question_answers
+      ? typeof msg.question_answers === "string"
+        ? JSON.parse(msg.question_answers)
+        : msg.question_answers
+      : undefined),
   permissionData: msg.permission_data
-    ? {
-        requestId: msg.permission_data.requestId,
-        toolName: msg.permission_data.toolName,
-        toolInput: msg.permission_data.toolInput,
-        decided: msg.permission_data.decided,
-        behavior: msg.permission_data.behavior,
-      }
+    ? (() => {
+        const pd =
+          typeof msg.permission_data === "string"
+            ? JSON.parse(msg.permission_data)
+            : msg.permission_data;
+        return {
+          requestId: pd.requestId,
+          toolName: pd.toolName,
+          toolInput: pd.toolInput,
+          decided: pd.decided,
+          behavior: pd.behavior,
+          source: pd.source,
+        };
+      })()
     : undefined,
   toolUsages:
     msg.toolUsages ||

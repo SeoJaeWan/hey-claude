@@ -316,12 +316,12 @@ router.post("/tool-use", async (req, res) => {
             const answers = parseQuestionAnswers(tool_input, tool_response);
             const questionMsgId = `question-${tool_use_id}`;
 
-            // DB 업데이트: question_submitted = 1
+            // DB 업데이트: question_submitted = 1, question_answers 저장
             const updateResult = db.prepare(`
                 UPDATE messages
-                SET question_submitted = 1
+                SET question_submitted = 1, question_answers = ?
                 WHERE id = ?
-            `).run(questionMsgId);
+            `).run(JSON.stringify(answers), questionMsgId);
 
             console.log(`[HOOKS] AskUserQuestion marked as submitted: ${questionMsgId}, changes: ${updateResult.changes}`);
 
@@ -582,6 +582,24 @@ router.post("/permission-notify", async (req, res) => {
             sessionSource = sessionData?.source || "terminal";
         }
 
+        // DB에 permission 메시지 저장 (requestId 없이 notify용 ID 생성)
+        const notifyId = `notify-${Date.now()}`;
+        const permMsgId = `permission-${notifyId}`;
+        const permNow = new Date().toISOString();
+        const permSeq = getNextSequence(internalSessionId);
+        const permissionDataJson = JSON.stringify({
+            requestId: notifyId,
+            toolName,
+            toolInput: toolInput || {},
+            decided: false,
+            source: sessionSource
+        });
+
+        db.prepare(`
+            INSERT INTO messages (id, session_id, role, content, timestamp, sequence, permission_data)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(permMsgId, internalSessionId, "assistant", "", permNow, permSeq, permissionDataJson);
+
         // SSE로 프론트엔드에 알림 (source 정보 포함)
         sseManager.broadcastToSession(internalSessionId, {
             type: "permission_request",
@@ -591,7 +609,7 @@ router.post("/permission-notify", async (req, res) => {
             source: sessionSource // CLI vs Web 구분용
         });
 
-        console.log(`[HOOKS] PermissionNotify: Notified session ${internalSessionId} (source: ${sessionSource})`);
+        console.log(`[HOOKS] PermissionNotify: Saved and notified session ${internalSessionId} (source: ${sessionSource})`);
 
         res.json({ success: true });
     } catch (error) {
@@ -642,6 +660,25 @@ router.post("/permission-request", async (req, res) => {
         };
 
         pendingPermissions.set(requestId, pendingPermission);
+
+        // DB에 permission 메시지 저장
+        const db = getDatabase();
+        const permMsgId = `permission-${requestId}`;
+        const permNow = new Date().toISOString();
+        const permSeq = getNextSequence(internalSessionId);
+        const permissionDataJson = JSON.stringify({
+            requestId,
+            toolName,
+            toolInput: toolInput || {},
+            decided: false
+        });
+
+        db.prepare(`
+            INSERT INTO messages (id, session_id, role, content, timestamp, sequence, permission_data)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(permMsgId, internalSessionId, "assistant", "", permNow, permSeq, permissionDataJson);
+
+        console.log(`[HOOKS] PermissionRequest: Saved permission message ${permMsgId}`);
 
         // 구독자 확인
         const hasSubscribers = sseManager.hasSessionSubscribers(internalSessionId);
@@ -718,9 +755,21 @@ router.post("/permission-decide", async (req, res) => {
             return res.status(404).json({ error: "Request not found" });
         }
 
-        // 결정 저장
+        // 결정 저장 (in-memory for polling)
         pending.decided = true;
         pending.behavior = behavior;
+
+        // DB 업데이트: permission_data의 decided/behavior 갱신
+        const permMsgId = `permission-${requestId}`;
+        const db = getDatabase();
+        const existingMsg = db.prepare("SELECT permission_data FROM messages WHERE id = ?").get(permMsgId) as { permission_data: string } | undefined;
+        if (existingMsg?.permission_data) {
+            const permData = JSON.parse(existingMsg.permission_data);
+            permData.decided = true;
+            permData.behavior = behavior;
+            db.prepare("UPDATE messages SET permission_data = ? WHERE id = ?").run(JSON.stringify(permData), permMsgId);
+            console.log(`[HOOKS] PermissionDecide: Updated DB for ${permMsgId}`);
+        }
 
         // SSE로 프론트엔드에 알림
         sseManager.broadcastToSession(pending.sessionId, {
@@ -809,10 +858,18 @@ router.post("/stop", async (req, res) => {
             console.log(`[HOOKS] Stop: No transcript_path found (provided: ${transcript_path}, auto-detect failed)`);
         }
 
-        // Clean up pending permissions for this session
+        // Clean up pending permissions for this session (in-memory + DB)
         for (const [reqId, pending] of pendingPermissions.entries()) {
             if (pending.sessionId === internalSessionId && !pending.decided) {
                 pending.decided = true;
+                // DB 업데이트: decided = true (expired)
+                const permMsgId = `permission-${reqId}`;
+                const existingPermMsg = db.prepare("SELECT permission_data FROM messages WHERE id = ?").get(permMsgId) as { permission_data: string } | undefined;
+                if (existingPermMsg?.permission_data) {
+                    const permData = JSON.parse(existingPermMsg.permission_data);
+                    permData.decided = true;
+                    db.prepare("UPDATE messages SET permission_data = ? WHERE id = ?").run(JSON.stringify(permData), permMsgId);
+                }
                 // No behavior set = expired state
                 sseManager.broadcastToSession(internalSessionId, {
                     type: "permission_decided",
@@ -824,6 +881,18 @@ router.post("/stop", async (req, res) => {
                 console.log(`[HOOKS] Stop: Cleaned up expired permission request ${reqId}`);
             }
         }
+
+        // DB에서 미결 question/permission 정리 (in-memory에 없는 것도 포함)
+        db.prepare(`
+            UPDATE messages SET question_submitted = 1
+            WHERE session_id = ? AND question_data IS NOT NULL AND question_submitted = 0
+        `).run(internalSessionId);
+
+        db.prepare(`
+            UPDATE messages SET permission_data = json_set(permission_data, '$.decided', json('true'))
+            WHERE session_id = ? AND permission_data IS NOT NULL
+              AND json_extract(permission_data, '$.decided') = json('false')
+        `).run(internalSessionId);
 
         // SSE로 turn_complete 이벤트 broadcast (프론트엔드 로딩 해제)
         sseManager.broadcastToSession(internalSessionId, {

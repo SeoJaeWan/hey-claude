@@ -120,6 +120,26 @@ const createTables = (database: Database.Database): void => {
         }
     }
 
+    // permission_data 컬럼 추가 (마이그레이션) - 권한 요청 데이터 JSON
+    try {
+        database.exec(`ALTER TABLE messages ADD COLUMN permission_data TEXT`);
+        console.log("[DATABASE] Added permission_data column to messages table");
+    } catch (error) {
+        if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
+            console.error("[DATABASE] Error adding permission_data column:", error);
+        }
+    }
+
+    // question_answers 컬럼 추가 (마이그레이션) - 질문 답변 JSON
+    try {
+        database.exec(`ALTER TABLE messages ADD COLUMN question_answers TEXT`);
+        console.log("[DATABASE] Added question_answers column to messages table");
+    } catch (error) {
+        if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
+            console.error("[DATABASE] Error adding question_answers column:", error);
+        }
+    }
+
     // tool_usages 테이블
     database.exec(`
         CREATE TABLE IF NOT EXISTS tool_usages (
