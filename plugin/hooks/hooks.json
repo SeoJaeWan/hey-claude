@@ -5,8 +5,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js",
-                        "timeout": 3000
+                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js"
                     }
                 ]
             }
@@ -17,8 +16,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/pre-tool-use.js",
-                        "timeout": 3000
+                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/pre-tool-use.js"
                     }
                 ]
             }
@@ -29,8 +27,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/tool-use.js",
-                        "timeout": 5000
+                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/tool-use.js"
                     }
                 ]
             }
@@ -40,8 +37,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt-submit.js",
-                        "timeout": 3000
+                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt-submit.js"
                     }
                 ]
             }
@@ -51,8 +47,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/stop.js",
-                        "timeout": 3000
+                        "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/stop.js"
                     }
                 ]
             }
@@ -63,7 +58,7 @@
                     {
                         "type": "command",
                         "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/permission-request.js\"",
-                        "timeout": 120000
+                        "timeout": 86400
                     }
                 ]
             }
