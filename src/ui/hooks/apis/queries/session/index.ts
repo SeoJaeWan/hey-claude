@@ -266,7 +266,7 @@ export const useSSEConnection = (
     }
 ) => {
     const queryClient = useQueryClient();
-    const {subscribe, unsubscribe, addEventHandler} = useSSEContext();
+    const {clientId, subscribe, unsubscribe, addEventHandler} = useSSEContext();
 
     // callbacks를 ref로 관리하여 의존성 배열에서 제거
     const callbacksRef = useRef(callbacks);
@@ -548,4 +548,6 @@ export const useSSEConnection = (
             cleanupHandler();
         };
     }, [sessionId, subscribe, unsubscribe, addEventHandler]);
+
+    return {clientId};
 };

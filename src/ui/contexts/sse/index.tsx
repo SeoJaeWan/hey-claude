@@ -4,12 +4,14 @@ import {
   useEffect,
   useRef,
   useCallback,
+  useState,
 } from "react";
 import type { ReactNode } from "react";
 
 type SSEEventHandler = (data: any) => void;
 
 interface SSEContextValue {
+  clientId: string | null;
   subscribe: (sessionId: string) => void;
   unsubscribe: () => void;
   addEventHandler: (handler: SSEEventHandler) => () => void;
@@ -24,7 +26,7 @@ export const useSSEContext = () => {
 };
 
 export const SSEProvider = ({ children }: { children: ReactNode }) => {
-  const clientIdRef = useRef<string | null>(null);
+  const [clientId, setClientId] = useState<string | null>(null);
   const handlersRef = useRef<Set<SSEEventHandler>>(new Set());
   const pendingSubscribeRef = useRef<string | null>(null);
 
@@ -36,7 +38,7 @@ export const SSEProvider = ({ children }: { children: ReactNode }) => {
         const data = JSON.parse(event.data);
 
         if (data.type === "connected") {
-          clientIdRef.current = data.clientId;
+          setClientId(data.clientId);
           console.log("[SSE] Connected, clientId:", data.clientId);
 
           // Execute pending subscribe if any
@@ -69,32 +71,32 @@ export const SSEProvider = ({ children }: { children: ReactNode }) => {
 
     return () => {
       es.close();
-      clientIdRef.current = null;
+      setClientId(null);
     };
   }, []);
 
   const subscribe = useCallback((sessionId: string) => {
-    if (clientIdRef.current) {
+    if (clientId) {
       fetch("/api/sse/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: clientIdRef.current, sessionId }),
+        body: JSON.stringify({ clientId, sessionId }),
       });
     } else {
       pendingSubscribeRef.current = sessionId;
     }
-  }, []);
+  }, [clientId]);
 
   const unsubscribe = useCallback(() => {
     pendingSubscribeRef.current = null;
-    if (clientIdRef.current) {
+    if (clientId) {
       fetch("/api/sse/unsubscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: clientIdRef.current }),
+        body: JSON.stringify({ clientId }),
       });
     }
-  }, []);
+  }, [clientId]);
 
   const addEventHandler = useCallback((handler: SSEEventHandler) => {
     handlersRef.current.add(handler);
@@ -104,7 +106,7 @@ export const SSEProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   return (
-    <SSEContext.Provider value={{ subscribe, unsubscribe, addEventHandler }}>
+    <SSEContext.Provider value={{ clientId, subscribe, unsubscribe, addEventHandler }}>
       {children}
     </SSEContext.Provider>
   );
