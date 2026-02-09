@@ -11,11 +11,11 @@ import claudeProcessManager from "../services/claudeProcessManager.js";
 const router: RouterType = Router();
 
 /**
- * POST /api/pty/resize/:sessionId
+ * POST /api/pty/resize/:clientId
  * PTY 크기 조정
  */
-router.post("/resize/:sessionId", (req, res) => {
-    const sessionId = req.params.sessionId as string;
+router.post("/resize/:clientId", (req, res) => {
+    const clientId = req.params.clientId as string;
     const { cols, rows } = req.body;
 
     if (!cols || !rows) {
@@ -25,24 +25,25 @@ router.post("/resize/:sessionId", (req, res) => {
         });
     }
 
-    claudeProcessManager.resize(sessionId, cols, rows);
+    claudeProcessManager.resize(clientId, cols, rows);
     res.json({ success: true });
 });
 
 /**
- * GET /api/pty/status/:sessionId
- * PTY 세션 상태 조회
+ * GET /api/pty/status/:clientId
+ * PTY 클라이언트 상태 조회
  */
-router.get("/status/:sessionId", (req, res) => {
-    const sessionId = req.params.sessionId as string;
+router.get("/status/:clientId", (req, res) => {
+    const clientId = req.params.clientId as string;
 
-    const process = claudeProcessManager.getProcess(sessionId);
-    const state = claudeProcessManager.getProcessState(sessionId);
+    const process = claudeProcessManager.getProcess(clientId);
+    const state = claudeProcessManager.getProcessState(clientId);
 
     res.json({
         exists: !!process,
         state,
-        sessionId: process?.sessionId,
+        clientId: process?.clientId,
+        sessionId: process?.currentSessionId,
         claudeSessionId: process?.claudeSessionId,
         lastActivityAt: process?.lastActivityAt?.toISOString()
     });

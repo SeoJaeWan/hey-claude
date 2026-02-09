@@ -62,7 +62,43 @@ const ChatPage = () => {
     [stopSending, stopSubmitting],
   );
 
-  useSSEConnection(sessionId, sseCallbacks);
+  const { clientId } = useSSEConnection(sessionId, sseCallbacks);
+
+  // Pending 메시지 처리 (newSession에서 전달된 첫 메시지)
+  const pendingMessageSentRef = useRef(false);
+  useEffect(() => {
+    if (!sessionId || !clientId || pendingMessageSentRef.current) return;
+
+    const pendingKey = `pendingMessage_${sessionId}`;
+    const pendingData = sessionStorage.getItem(pendingKey);
+    if (!pendingData) return;
+
+    try {
+      const pending = JSON.parse(pendingData);
+      sessionStorage.removeItem(pendingKey);
+      pendingMessageSentRef.current = true;
+
+      // Base64 이미지를 File로 변환
+      let imageFiles: File[] | undefined;
+      if (pending.images && pending.images.length > 0) {
+        imageFiles = pending.images.map((img: { name: string; type: string; data: string }) => {
+          const arr = img.data.split(',');
+          const mime = arr[0].match(/:(.*?);/)?.[1] || img.type;
+          const bstr = atob(arr[1]);
+          let n = bstr.length;
+          const u8arr = new Uint8Array(n);
+          while (n--) u8arr[n] = bstr.charCodeAt(n);
+          return new File([u8arr], img.name, { type: mime });
+        });
+      }
+
+      // 첫 메시지 전송
+      sendMessage(sessionId, clientId, pending.content, imageFiles);
+    } catch (e) {
+      console.error('Failed to process pending message:', e);
+      sessionStorage.removeItem(pendingKey);
+    }
+  }, [sessionId, clientId, sendMessage]);
 
   // 스트리밍 상태 확인 (백그라운드 작업 포함)
   const isStreaming =
@@ -131,7 +167,7 @@ const ChatPage = () => {
   };
 
   const handleSend = async (content: string, inputImages?: File[]) => {
-    if (!sessionId) return;
+    if (!sessionId || !clientId) return;
 
     const allImages = [
       ...(inputImages || []),
@@ -140,6 +176,7 @@ const ChatPage = () => {
 
     await sendMessage(
       sessionId,
+      clientId,
       content,
       allImages.length > 0 ? allImages : undefined,
     );
@@ -150,8 +187,8 @@ const ChatPage = () => {
   };
 
   const handleStop = () => {
-    if (!sessionId) return;
-    stopMessage(sessionId);
+    if (!sessionId || !clientId) return;
+    stopMessage(sessionId, clientId);
   };
 
   // Cleanup blob URLs on unmount
@@ -175,6 +212,7 @@ const ChatPage = () => {
       <MessageList
         ref={messageListRef}
         messages={messages}
+        clientId={clientId}
         isStreaming={isStreaming}
         hasMore={hasNextPage}
         onLoadMore={fetchNextPage}

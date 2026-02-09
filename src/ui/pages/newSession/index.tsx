@@ -5,7 +5,6 @@ import {cn} from "../../utils/cn";
 import ChatInput from "../../components/chat/input";
 import {getProviderModels, DEFAULT_PROVIDER, DEFAULT_CLAUDE_MODEL, DEFAULT_QUICK_CHAT_MODEL} from "../../data/models";
 import {useCreateSession} from "../../hooks/apis/queries/session";
-import {useSendMessage} from "../../hooks/apis/queries/message";
 import {useTranslation} from "../../contexts/language";
 
 type SessionType = "claude-code" | "quick-chat";
@@ -22,7 +21,6 @@ const NewSessionPage = () => {
 
     // API 훅
     const createSessionMutation = useCreateSession();
-    const {sendMessage} = useSendMessage();
 
     // 드래그 앤 드롭 이미지 상태
     const [images, setImages] = useState<{id: string; src: string; file: File}[]>([]);
@@ -105,11 +103,31 @@ const NewSessionPage = () => {
             images.forEach((img) => URL.revokeObjectURL(img.src));
             setImages([]);
 
-            // 2. 채팅 페이지로 먼저 이동 (스트리밍 UI를 보여주기 위해)
-            navigate(`/chat/${session.id}`);
+            // 2. 첫 메시지를 세션 스토리지에 저장 (chat 페이지에서 SSE 연결 후 전송)
+            const pendingMessage = {
+                content,
+                images: allImages.length > 0 ? allImages.map(f => ({ name: f.name, type: f.type, data: '' })) : undefined
+            };
+            // 이미지가 있으면 Base64로 변환하여 저장
+            if (allImages.length > 0) {
+                const imagePromises = allImages.map(file => {
+                    return new Promise<string>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result as string);
+                        reader.readAsDataURL(file);
+                    });
+                });
+                const imageData = await Promise.all(imagePromises);
+                pendingMessage.images = allImages.map((f, i) => ({
+                    name: f.name,
+                    type: f.type,
+                    data: imageData[i]
+                }));
+            }
+            sessionStorage.setItem(`pendingMessage_${session.id}`, JSON.stringify(pendingMessage));
 
-            // 3. 첫 메시지 전송 (이미지 포함, 비동기로 백그라운드에서 실행)
-            sendMessage(session.id, content, allImages.length > 0 ? allImages : undefined);
+            // 3. 채팅 페이지로 이동 (chat 페이지에서 SSE 연결 후 첫 메시지 전송)
+            navigate(`/chat/${session.id}`);
         } catch (error) {
             console.error("Failed to create session or send message:", error);
             // TODO: 에러 토스트 표시

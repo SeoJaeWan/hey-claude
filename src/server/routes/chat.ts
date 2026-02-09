@@ -99,14 +99,14 @@ router.post("/start", async (req, res) => {
 
         console.log("[CHAT START] PTY process ready:", {
             clientId,
-            sessionId: cp.sessionId,
+            sessionId: cp.currentSessionId,
             claudeSessionId: cp.claudeSessionId,
             state: cp.state
         });
 
         res.json({
             success: true,
-            sessionId: cp.sessionId,
+            sessionId: cp.currentSessionId,
             claudeSessionId: cp.claudeSessionId
         });
     } catch (error) {

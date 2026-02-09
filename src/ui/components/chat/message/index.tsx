@@ -28,6 +28,7 @@ const stripIdeTags = (content: string): string =>
 
 interface MessageProps {
   message: MessageType;
+  clientId?: string | null;
 }
 
 // Markdown 커스텀 컴포넌트 정의
@@ -78,7 +79,7 @@ const markdownComponents = {
 };
 
 const Message = memo(
-  ({ message }: MessageProps) => {
+  ({ message, clientId }: MessageProps) => {
     const isUser = message.role === "user";
 
     // toolUsages에서 파일 변경사항 추출
@@ -124,6 +125,7 @@ const Message = memo(
                 )}
                 <QuestionCard
                   sessionId={message.sessionId}
+                  clientId={clientId ?? null}
                   questionData={message.questionData}
                   isSubmitted={message.questionSubmitted}
                   questionAnswers={message.questionAnswers}

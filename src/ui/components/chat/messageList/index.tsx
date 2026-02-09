@@ -16,6 +16,7 @@ export interface MessageListHandle {
 
 interface MessageListProps {
   messages: MessageType[];
+  clientId?: string | null;
   isStreaming?: boolean;
   hasMore?: boolean;
   onLoadMore?: () => void;
@@ -27,6 +28,7 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
   (
     {
       messages,
+      clientId,
       isStreaming = false,
       hasMore = false,
       onLoadMore,
@@ -95,6 +97,7 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
               <Message
                 key={message.id}
                 message={message}
+                clientId={clientId}
               />
             </div>
           )}

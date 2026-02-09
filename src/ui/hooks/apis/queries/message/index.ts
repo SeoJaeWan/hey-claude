@@ -109,7 +109,7 @@ export const useSendMessage = () => {
   const [error, setError] = useState<string | null>(null);
 
   const sendMessage = useCallback(
-    async (sessionId: string, prompt: string, images?: File[]) => {
+    async (sessionId: string, clientId: string, prompt: string, images?: File[]) => {
       setIsSending(true);
       setError(null);
 
@@ -126,6 +126,7 @@ export const useSendMessage = () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sessionId,
+            clientId,
             message: prompt,
             images: imageData,
           }),
@@ -167,6 +168,7 @@ export const useSubmitQuestionAnswer = () => {
   const submitAnswer = useCallback(
     async (
       sessionId: string,
+      clientId: string,
       toolUseId: string,
       answers: {
         questionIndex: number;
@@ -181,7 +183,7 @@ export const useSubmitQuestionAnswer = () => {
         const response = await fetch("/api/chat/tool-result", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, toolUseId, answers }),
+          body: JSON.stringify({ sessionId, clientId, toolUseId, answers }),
         });
 
         if (!response.ok) {
@@ -209,13 +211,13 @@ export const useSubmitQuestionAnswer = () => {
 export const useStopMessage = () => {
   const [isStopping, setIsStopping] = useState(false);
 
-  const stopMessage = useCallback(async (sessionId: string) => {
+  const stopMessage = useCallback(async (sessionId: string, clientId: string) => {
     setIsStopping(true);
     try {
       await fetch("/api/chat/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify({ sessionId, clientId }),
       });
     } catch (err) {
       console.error("[useStopMessage] Error:", err);
