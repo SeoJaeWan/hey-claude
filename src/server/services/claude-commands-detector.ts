@@ -184,10 +184,10 @@ export const getAllCommands = async (projectPath: string): Promise<CommandInfo[]
 /**
  * DB에서 commands 로드 (서버 시작 시 즉시 사용)
  */
-export const loadCommandsFromDB = (projectPath: string): CommandInfo[] => {
+export const loadCommandsFromDB = (): CommandInfo[] => {
     try {
         const db = getDatabase();
-        const rows = db.prepare("SELECT * FROM commands WHERE project_path = ?").all(projectPath) as any[];
+        const rows = db.prepare("SELECT * FROM commands").all() as any[];
 
         return rows.map(row => ({
             name: row.name,
@@ -205,22 +205,21 @@ export const loadCommandsFromDB = (projectPath: string): CommandInfo[] => {
 /**
  * DB에 commands 저장 (기존 데이터 교체)
  */
-export const saveCommandsToDB = (projectPath: string, commands: CommandInfo[]): void => {
+export const saveCommandsToDB = (commands: CommandInfo[]): void => {
     try {
         const db = getDatabase();
         const now = new Date().toISOString();
 
-        const deleteStmt = db.prepare("DELETE FROM commands WHERE project_path = ?");
+        const deleteStmt = db.prepare("DELETE FROM commands");
         const insertStmt = db.prepare(`
-            INSERT INTO commands (project_path, name, trigger, description, source, allowed_tools, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO commands (name, trigger, description, source, allowed_tools, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
         `);
 
         const syncTransaction = db.transaction((cmds: CommandInfo[]) => {
-            deleteStmt.run(projectPath);
+            deleteStmt.run();
             for (const cmd of cmds) {
                 insertStmt.run(
-                    projectPath,
                     cmd.name,
                     cmd.trigger,
                     cmd.description || null,

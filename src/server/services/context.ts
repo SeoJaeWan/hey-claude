@@ -5,15 +5,15 @@
 import { getDatabase } from "./database.js";
 
 interface ContextOptions {
-    projectPath: string;
     sessionId?: string;
 }
 
 export const getRecentContext = async (
-    options: ContextOptions
+    options: ContextOptions = {}
 ): Promise<string | null> => {
     try {
         const db = getDatabase();
+        const projectPath = process.cwd();
 
         // 최근 세션의 압축된 도구 사용 내역 조회
         const toolUsages = db
@@ -33,7 +33,7 @@ export const getRecentContext = async (
             LIMIT 20
         `
             )
-            .all(options.projectPath);
+            .all(projectPath);
 
         if (toolUsages.length === 0) {
             return null;

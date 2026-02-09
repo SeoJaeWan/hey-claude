@@ -4,26 +4,6 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 
 const router: RouterType = Router();
 
-// GET /api/project/path - 현재 프로젝트 경로
-router.get("/path", async (_req, res) => {
-    try {
-        const projectPath = process.cwd();
-        res.json({
-            data: {
-                path: projectPath,
-            },
-        });
-    } catch (error) {
-        console.error("Project path failed:", error);
-        res.status(500).json({
-            error: {
-                code: "PROJECT_PATH_FAILED",
-                message: error instanceof Error ? error.message : "Unknown error",
-            },
-        });
-    }
-});
-
 // GET /api/project/info - 프로젝트 정보
 router.get("/info", async (req, res) => {
     try {
