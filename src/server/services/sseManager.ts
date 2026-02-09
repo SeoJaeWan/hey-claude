@@ -18,6 +18,10 @@ interface SSEClient {
 class SSEManager {
     private clients: Map<string, SSEClient> = new Map();
     private onSessionEmptyCallback: ((sessionId: string) => void) | null = null;
+    private onClientConnectedCallback: ((clientId: string) => void) | null = null;
+    private onClientDisconnectedCallback: ((clientId: string) => void) | null = null;
+    private heartbeatInterval = 30000; // 30 seconds
+    private clientTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
     /**
      * Add a new SSE client and return its unique ID
@@ -32,6 +36,9 @@ class SSEManager {
             this.removeClient(id);
         });
 
+        // Invoke lifecycle callback
+        this.onClientConnectedCallback?.(id);
+
         return id;
     }
 
@@ -42,6 +49,13 @@ class SSEManager {
         const client = this.clients.get(id);
         if (!client) return;
 
+        // Clear heartbeat timeout
+        const timeout = this.clientTimeouts.get(id);
+        if (timeout) {
+            clearTimeout(timeout);
+            this.clientTimeouts.delete(id);
+        }
+
         const prevSessionId = client.subscribedSessionId;
         this.clients.delete(id);
         console.log(`[SSE MANAGER] Client disconnected: ${id} (total: ${this.clients.size})`);
@@ -49,6 +63,9 @@ class SSEManager {
         if (prevSessionId) {
             this.checkSessionEmpty(prevSessionId);
         }
+
+        // Invoke lifecycle callback
+        this.onClientDisconnectedCallback?.(id);
     }
 
     /**
@@ -103,12 +120,56 @@ class SSEManager {
     }
 
     /**
+     * Set callback for when a client connects
+     */
+    public setOnClientConnected(callback: (clientId: string) => void): void {
+        this.onClientConnectedCallback = callback;
+    }
+
+    /**
+     * Set callback for when a client disconnects
+     */
+    public setOnClientDisconnected(callback: (clientId: string) => void): void {
+        this.onClientDisconnectedCallback = callback;
+    }
+
+    /**
+     * Start heartbeat timeout for a client
+     */
+    public startHeartbeat(clientId: string): void {
+        const timeout = setTimeout(() => {
+            console.log(`[SSE MANAGER] Client ${clientId} timed out`);
+            this.removeClient(clientId);
+        }, this.heartbeatInterval * 2); // 60 seconds timeout
+
+        this.clientTimeouts.set(clientId, timeout);
+    }
+
+    /**
+     * Reset heartbeat timeout for a client
+     */
+    public resetHeartbeat(clientId: string): void {
+        const existing = this.clientTimeouts.get(clientId);
+        if (existing) {
+            clearTimeout(existing);
+        }
+        this.startHeartbeat(clientId);
+    }
+
+    /**
      * Check if a session has any subscribers
      */
     public hasSessionSubscribers(sessionId: string): boolean {
         return Array.from(this.clients.values()).some(
             (c) => c.subscribedSessionId === sessionId
         );
+    }
+
+    /**
+     * Get the session ID that a client is currently subscribed to
+     */
+    public getClientSessionId(clientId: string): string | undefined {
+        return this.clients.get(clientId)?.subscribedSessionId;
     }
 
     /**
