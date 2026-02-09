@@ -16,7 +16,6 @@ export interface Session {
     model?: string;
     createdAt: string;
     updatedAt: string;
-    projectPath: string;
 }
 
 // 메시지 타입

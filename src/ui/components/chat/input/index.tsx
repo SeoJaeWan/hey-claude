@@ -16,7 +16,6 @@ import {
   DEFAULT_QUICK_CHAT_MODEL,
 } from "../../../data/models";
 import { getCommands, AutocompleteItem } from "../../../data/autocomplete";
-import { useProjectPath } from "../../../hooks/apis/queries/project";
 import { useSnippetsQuery } from "../../../hooks/apis/queries/snippet";
 import { useCommandsQuery } from "../../../hooks/apis/queries/cli";
 import {
@@ -67,8 +66,7 @@ const ChatInput = ({
   const navigate = useNavigate();
   const { t } = useTranslation();
   const providerModels = useMemo(() => getProviderModels(t), [t]);
-  const { data: projectPath } = useProjectPath();
-  const { data: snippets = [] } = useSnippetsQuery(projectPath);
+  const { data: snippets = [] } = useSnippetsQuery();
   const { data: apiCommands } = useCommandsQuery();
   const feedbackMutation = useFeedbackMutation();
   const summaryMutation = useSummaryMutation();

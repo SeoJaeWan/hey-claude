@@ -1,15 +1,13 @@
 import {useState} from "react";
 import {Plus, Pencil, Trash2} from "lucide-react";
 import {cn} from "../../../utils/cn";
-import {useProjectPath} from "../../../hooks/apis/queries/project";
 import {useSnippetsQuery, useCreateSnippet, useUpdateSnippet, useDeleteSnippet, Snippet} from "../../../hooks/apis/queries/snippet";
 import SnippetEditDialog from "../snippetEditDialog";
 import {useTranslation} from "../../../contexts/language";
 
 const SnippetsSettings = () => {
     const {t} = useTranslation();
-    const {data: projectPath} = useProjectPath();
-    const {data: snippets = [], isLoading} = useSnippetsQuery(projectPath);
+    const {data: snippets = [], isLoading} = useSnippetsQuery();
     const createSnippet = useCreateSnippet();
     const updateSnippet = useUpdateSnippet();
     const deleteSnippet = useDeleteSnippet();
@@ -29,18 +27,14 @@ const SnippetsSettings = () => {
     };
 
     const handleSave = (data: Omit<Snippet, "id">) => {
-        if (!projectPath) return;
-
         if (editingSnippet) {
             updateSnippet.mutate({
                 id: editingSnippet.id,
                 ...data,
-                projectPath,
             });
         } else {
             createSnippet.mutate({
                 ...data,
-                projectPath,
             });
         }
         setIsDialogOpen(false);
@@ -53,10 +47,8 @@ const SnippetsSettings = () => {
     };
 
     const handleDelete = (id: string) => {
-        if (!projectPath) return;
-
         if (deletingId === id) {
-            deleteSnippet.mutate({id, projectPath});
+            deleteSnippet.mutate(id);
             setDeletingId(null);
         } else {
             setDeletingId(id);

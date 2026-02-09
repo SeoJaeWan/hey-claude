@@ -17,7 +17,6 @@ const mapSession = (raw: any): Session => ({
     model: raw.model,
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
-    projectPath: raw.project_path,
 });
 
 // 세션 정렬 함수
@@ -42,12 +41,11 @@ export const sortSessions = (sessions: Session[]): Session[] => {
 };
 
 // 세션 목록 조회
-export const useSessionsQuery = (projectPath?: string) => {
+export const useSessionsQuery = () => {
     return useQuery({
-        queryKey: ["sessions", projectPath],
+        queryKey: ["sessions"],
         queryFn: async () => {
-            const query = projectPath ? `?projectPath=${encodeURIComponent(projectPath)}` : "";
-            const res = await api.get<any[]>(`/sessions${query}`);
+            const res = await api.get<any[]>("/sessions");
 
             if (res.error) {
                 throw new Error(res.error.message);
@@ -83,7 +81,7 @@ export const useCreateSession = () => {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async (data: {type: "claude-code" | "quick-chat"; name?: string; projectPath: string; model?: string}) => {
+        mutationFn: async (data: {type: "claude-code" | "quick-chat"; name?: string; model?: string}) => {
             const res = await api.post<any>("/sessions", data);
 
             if (res.error) {
@@ -138,7 +136,7 @@ export const useDeleteSession = () => {
 };
 
 // 전역 SSE 연결 (세션 상태 업데이트)
-export const useGlobalSSE = (projectPath?: string) => {
+export const useGlobalSSE = () => {
     const queryClient = useQueryClient();
     const {addEventHandler} = useSSEContext();
 
@@ -164,7 +162,7 @@ export const useGlobalSSE = (projectPath?: string) => {
                 console.log("[Global SSE] Received session_status:", {sessionId, status, backgroundTasksCount});
 
                 // React Query 캐시 업데이트
-                queryClient.setQueryData(["sessions", projectPath], (old: Session[] | undefined) => {
+                queryClient.setQueryData(["sessions"], (old: Session[] | undefined) => {
                     if (!old) return old;
 
                     const updated = old.map((session) => {
@@ -199,7 +197,7 @@ export const useGlobalSSE = (projectPath?: string) => {
 
         // Return cleanup on unmount
         return cleanup;
-    }, [queryClient, projectPath, addEventHandler]);
+    }, [queryClient, addEventHandler]);
 };
 
 // 세션별 SSE 연결 (Hooks 이벤트 수신)

@@ -5,7 +5,6 @@ import {cn} from "../../utils/cn";
 import ChatInput from "../../components/chat/input";
 import {getProviderModels, DEFAULT_PROVIDER, DEFAULT_CLAUDE_MODEL, DEFAULT_QUICK_CHAT_MODEL} from "../../data/models";
 import {useCreateSession} from "../../hooks/apis/queries/session";
-import {useProjectPath} from "../../hooks/apis/queries/project";
 import {useSendMessage} from "../../hooks/apis/queries/message";
 import {useTranslation} from "../../contexts/language";
 
@@ -22,7 +21,6 @@ const NewSessionPage = () => {
     const [quickChatModel, setQuickChatModel] = useState(DEFAULT_QUICK_CHAT_MODEL);
 
     // API 훅
-    const {data: projectPath = ""} = useProjectPath();
     const createSessionMutation = useCreateSession();
     const {sendMessage} = useSendMessage();
 
@@ -88,11 +86,6 @@ const NewSessionPage = () => {
     };
 
     const handleSend = async (content: string, inputImages?: File[]) => {
-        if (!projectPath) {
-            console.error("Project path not available");
-            return;
-        }
-
         // inputImages는 ChatInput에서 전달받은 파일들 (클립보드, 파일선택)
         // images는 NewSessionPage에서 관리하는 드래그앤드롭 이미지들
         const allImages = [...(inputImages || []), ...images.map((img) => img.file)];
@@ -102,7 +95,6 @@ const NewSessionPage = () => {
             const selectedModel = sessionType === "claude-code" ? claudeModel : quickChatModel;
             const session = await createSessionMutation.mutateAsync({
                 type: sessionType,
-                projectPath,
                 model: selectedModel,
                 // name은 첫 메시지 내용으로 자동 생성되도록 서버에서 처리
             });

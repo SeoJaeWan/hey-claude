@@ -38,14 +38,11 @@ const mapSnippet = (raw: ServerSnippet): Snippet => ({
 });
 
 // 스니펫 목록 조회
-export const useSnippetsQuery = (projectPath?: string) => {
+export const useSnippetsQuery = () => {
   return useQuery({
-    queryKey: ['snippets', projectPath],
+    queryKey: ['snippets'],
     queryFn: async () => {
-      if (!projectPath) return [];
-
-      const query = `?projectPath=${encodeURIComponent(projectPath)}`;
-      const res = await api.get<ServerSnippet[]>(`/snippets${query}`);
+      const res = await api.get<ServerSnippet[]>('/snippets');
 
       if (res.error) {
         throw new Error(res.error.message);
@@ -53,7 +50,6 @@ export const useSnippetsQuery = (projectPath?: string) => {
 
       return (res.data || []).map(mapSnippet);
     },
-    enabled: !!projectPath,
   });
 };
 
@@ -67,14 +63,12 @@ export const useCreateSnippet = () => {
       name: string;
       value: string;
       category?: string;
-      projectPath: string;
     }) => {
       const res = await api.post<ServerSnippet>('/snippets', {
         trigger: data.trigger,
         name: data.name,
         content: data.value, // value → content
         category: data.category || 'general',
-        projectPath: data.projectPath,
       });
 
       if (res.error) {
@@ -100,13 +94,11 @@ export const useUpdateSnippet = () => {
       name?: string;
       value?: string;
       category?: string;
-      projectPath: string;
     }) => {
-      const { id, projectPath, value, ...rest } = data;
+      const { id, value, ...rest } = data;
       const res = await api.patch<ServerSnippet>(`/snippets/${id}`, {
         ...rest,
         content: value, // value → content
-        projectPath,
       });
 
       if (res.error) {
@@ -126,9 +118,8 @@ export const useDeleteSnippet = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: { id: string; projectPath: string }) => {
-      const query = `?projectPath=${encodeURIComponent(data.projectPath)}`;
-      const res = await api.delete(`/snippets/${data.id}${query}`);
+    mutationFn: async (id: string) => {
+      const res = await api.delete(`/snippets/${id}`);
 
       if (res.error) {
         throw new Error(res.error.message);
