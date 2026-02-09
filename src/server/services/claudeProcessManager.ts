@@ -1,8 +1,9 @@
 /**
- * Claude Process Manager - PTY 기반
+ * Claude Process Manager - PTY 기반 (Client-Centric)
  *
  * PTY (Pseudo-Terminal) 기반으로 Claude CLI 프로세스를 관리합니다.
- * - 세션당 1개의 PTY 프로세스 유지
+ * - 클라이언트(SSE 연결)당 1개의 PTY 프로세스 유지
+ * - 각 클라이언트는 독립된 PTY로 세션 제어
  * - TUI 출력 그대로 프론트엔드에 전달
  * - stdin으로 사용자 입력 전달
  * - Hooks로 구조화된 데이터 수집
@@ -29,8 +30,9 @@ export type ProcessState = 'idle' | 'processing' | 'waiting_input';
 // 관리되는 Claude PTY 프로세스 정보
 export interface ClaudeProcess {
     pty: IPty;
-    sessionId: string;
-    claudeSessionId?: string;
+    clientId: string;           // 클라이언트 고유 ID (SSE 연결 기반)
+    currentSessionId?: string;  // 현재 활성 세션 ID
+    claudeSessionId?: string;   // Claude CLI 세션 ID
     state: ProcessState;
     lastActivityAt: Date;
     eventEmitter: EventEmitter;
@@ -40,25 +42,26 @@ export interface ClaudeProcess {
 export type OutputCallback = (data: string) => void;
 
 class ClaudeProcessManager {
-    private processes: Map<string, ClaudeProcess> = new Map();
+    private processes: Map<string, ClaudeProcess> = new Map(); // key: clientId
 
     /**
-     * 세션에 대한 PTY 프로세스 가져오기 또는 생성
+     * 클라이언트용 PTY 프로세스 생성
      */
-    async getOrCreateProcess(
+    async createForClient(
+        clientId: string,
         sessionId: string,
         claudeSessionId?: string,
         cwd?: string
     ): Promise<ClaudeProcess> {
         // 기존 프로세스 확인
-        const existing = this.processes.get(sessionId);
+        const existing = this.processes.get(clientId);
         if (existing) {
-            console.log(`[PTY MANAGER] Reusing existing process for session ${sessionId}`);
+            console.log(`[PTY MANAGER] Client ${clientId.substring(0, 8)} already has PTY for session ${sessionId.substring(0, 8)}`);
             return existing;
         }
 
         // 새 PTY 프로세스 생성
-        console.log(`[PTY MANAGER] Creating new PTY process for session ${sessionId}`);
+        console.log(`[PTY MANAGER] Creating PTY for client ${clientId.substring(0, 8)}, session ${sessionId.substring(0, 8)}`);
 
         // 인터랙티브 모드 - TUI로 실행
         // --resume: 기존 Claude 세션 재개
@@ -89,7 +92,8 @@ class ClaudeProcessManager {
 
         const claudeProcess: ClaudeProcess = {
             pty: ptyProcess,
-            sessionId,
+            clientId,
+            currentSessionId: sessionId,
             claudeSessionId,
             state: 'idle',
             lastActivityAt: new Date(),
@@ -103,35 +107,108 @@ class ClaudeProcessManager {
             const cleanData = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').trim();
             if (cleanData.length > 0) {
                 const preview = cleanData.substring(0, 200);
-                console.log(`[PTY OUTPUT] [${sessionId.substring(0, 8)}] ${preview}`);
+                console.log(`[PTY OUTPUT] [Client: ${clientId.substring(0, 8)}] [Session: ${sessionId.substring(0, 8)}] ${preview}`);
             }
             claudeProcess.eventEmitter.emit('data', data);
         });
 
         // PTY 종료 이벤트
         ptyProcess.onExit(({ exitCode, signal }) => {
-            console.log(`[PTY MANAGER] Process exited for session ${sessionId}:`, { exitCode, signal });
+            console.log(`[PTY MANAGER] Process exited for client ${clientId.substring(0, 8)}:`, { exitCode, signal });
             claudeProcess.eventEmitter.emit('exit', exitCode, signal);
-            this.processes.delete(sessionId);
+            this.processes.delete(clientId);
         });
 
-        this.processes.set(sessionId, claudeProcess);
+        this.processes.set(clientId, claudeProcess);
         return claudeProcess;
+    }
+
+    /**
+     * 세션 전환 (PTY 재생성)
+     */
+    async switchSession(
+        clientId: string,
+        newSessionId: string,
+        newClaudeSessionId?: string,
+        cwd?: string
+    ): Promise<ClaudeProcess> {
+        const existing = this.processes.get(clientId);
+
+        if (!existing) {
+            console.log(`[PTY MANAGER] No existing PTY for client ${clientId.substring(0, 8)}, creating new one`);
+            return this.createForClient(clientId, newSessionId, newClaudeSessionId, cwd);
+        }
+
+        console.log(`[PTY MANAGER] Switching session for client ${clientId.substring(0, 8)}: ${existing.currentSessionId?.substring(0, 8)} → ${newSessionId.substring(0, 8)}`);
+
+        // 실행 중이면 Ctrl+C로 중단
+        if (existing.state === 'processing') {
+            console.log(`[PTY MANAGER] Sending SIGTERM (Ctrl+C) to stop current process`);
+            existing.pty.write('\x03'); // Ctrl+C
+            // 딜레이 후 전환
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        // 기존 PTY 종료
+        existing.pty.kill();
+        this.processes.delete(clientId);
+
+        // 새 PTY 생성
+        return this.createForClient(clientId, newSessionId, newClaudeSessionId, cwd);
+    }
+
+    /**
+     * 클라이언트 PTY 종료 (SIGTERM → timeout → SIGKILL)
+     */
+    terminateForClient(clientId: string, timeout: number = 5000): void {
+        const process = this.processes.get(clientId);
+        if (!process) {
+            console.log(`[PTY MANAGER] No process to terminate for client ${clientId.substring(0, 8)}`);
+            return;
+        }
+
+        console.log(`[PTY MANAGER] Terminating PTY for client ${clientId.substring(0, 8)} with ${timeout}ms timeout`);
+
+        // 1. SIGTERM (Ctrl+C) 시도
+        process.pty.write('\x03');
+
+        // 2. timeout 후 강제 종료
+        setTimeout(() => {
+            if (this.processes.has(clientId)) {
+                console.log(`[PTY MANAGER] Force killing PTY for client ${clientId.substring(0, 8)} after timeout`);
+                process.pty.kill();
+                this.processes.delete(clientId);
+            }
+        }, timeout);
+    }
+
+    /**
+     * 세션에 대한 PTY 프로세스 가져오기 또는 생성 (호환성 유지)
+     * @deprecated Use createForClient() instead
+     */
+    async getOrCreateProcess(
+        sessionId: string,
+        claudeSessionId?: string,
+        cwd?: string
+    ): Promise<ClaudeProcess> {
+        // 호환성을 위해 sessionId를 clientId처럼 사용
+        console.log(`[PTY MANAGER] getOrCreateProcess (deprecated) called for session ${sessionId.substring(0, 8)}`);
+        return this.createForClient(sessionId, sessionId, claudeSessionId, cwd);
     }
 
     /**
      * PTY stdin으로 입력 전송
      */
-    write(sessionId: string, data: string): boolean {
-        const cp = this.processes.get(sessionId);
+    write(clientId: string, data: string): boolean {
+        const cp = this.processes.get(clientId);
         if (!cp) {
-            console.log(`[PTY MANAGER] No process found for session ${sessionId}`);
+            console.log(`[PTY MANAGER] No process found for client ${clientId.substring(0, 8)}`);
             return false;
         }
 
         cp.lastActivityAt = new Date();
         cp.state = 'processing';
-        console.log(`[PTY WRITE] [${sessionId.substring(0, 8)}] Writing ${data.length} chars: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n').substring(0, 100)}"`);
+        console.log(`[PTY WRITE] [Client: ${clientId.substring(0, 8)}] Writing ${data.length} chars: "${data.replace(/\r/g, '\\r').replace(/\n/g, '\\n').substring(0, 100)}"`);
         cp.pty.write(data);
         return true;
     }
@@ -139,8 +216,8 @@ class ClaudeProcessManager {
     /**
      * PTY stdout 데이터 구독
      */
-    onData(sessionId: string, callback: OutputCallback): () => void {
-        const cp = this.processes.get(sessionId);
+    onData(clientId: string, callback: OutputCallback): () => void {
+        const cp = this.processes.get(clientId);
         if (!cp) {
             return () => {};
         }
@@ -154,8 +231,8 @@ class ClaudeProcessManager {
     /**
      * PTY 종료 이벤트 구독
      */
-    onExit(sessionId: string, callback: (code: number, signal?: number) => void): () => void {
-        const cp = this.processes.get(sessionId);
+    onExit(clientId: string, callback: (code: number, signal?: number) => void): () => void {
+        const cp = this.processes.get(clientId);
         if (!cp) {
             return () => {};
         }
@@ -167,25 +244,25 @@ class ClaudeProcessManager {
     }
 
     /**
-     * 세션의 활성 프로세스 가져오기
+     * 클라이언트의 활성 프로세스 가져오기
      */
-    getProcess(sessionId: string): ClaudeProcess | undefined {
-        return this.processes.get(sessionId);
+    getProcess(clientId: string): ClaudeProcess | undefined {
+        return this.processes.get(clientId);
     }
 
     /**
      * 프로세스 상태 확인
      */
-    getProcessState(sessionId: string): ProcessState | null {
-        const cp = this.processes.get(sessionId);
+    getProcessState(clientId: string): ProcessState | null {
+        const cp = this.processes.get(clientId);
         return cp ? cp.state : null;
     }
 
     /**
      * 프로세스 상태 설정
      */
-    setProcessState(sessionId: string, state: ProcessState): void {
-        const cp = this.processes.get(sessionId);
+    setProcessState(clientId: string, state: ProcessState): void {
+        const cp = this.processes.get(clientId);
         if (cp) {
             cp.state = state;
         }
@@ -194,8 +271,8 @@ class ClaudeProcessManager {
     /**
      * PTY 크기 조정
      */
-    resize(sessionId: string, cols: number, rows: number): void {
-        const cp = this.processes.get(sessionId);
+    resize(clientId: string, cols: number, rows: number): void {
+        const cp = this.processes.get(clientId);
         if (cp) {
             cp.pty.resize(cols, rows);
         }
@@ -203,11 +280,12 @@ class ClaudeProcessManager {
 
     /**
      * 세션의 프로세스 종료
+     * @deprecated Use terminateForClient() instead
      */
     terminateProcess(sessionId: string): void {
         const cp = this.processes.get(sessionId);
         if (cp) {
-            console.log(`[PTY MANAGER] Terminating process for session ${sessionId}`);
+            console.log(`[PTY MANAGER] Terminating process for session ${sessionId.substring(0, 8)}`);
             cp.pty.kill();
             this.processes.delete(sessionId);
         }
@@ -219,8 +297,8 @@ class ClaudeProcessManager {
     cleanup(): void {
         console.log(`[PTY MANAGER] Cleaning up all processes...`);
 
-        for (const [sessionId, cp] of this.processes) {
-            console.log(`[PTY MANAGER] Terminating process for session ${sessionId}`);
+        for (const [clientId, cp] of this.processes) {
+            console.log(`[PTY MANAGER] Terminating process for client ${clientId.substring(0, 8)}`);
             cp.pty.kill();
         }
 
@@ -236,20 +314,20 @@ class ClaudeProcessManager {
     }
 
     /**
-     * 세션에 활성 프로세스가 있는지 확인
+     * 클라이언트에 활성 프로세스가 있는지 확인
      */
-    hasProcess(sessionId: string): boolean {
-        return this.processes.has(sessionId);
+    hasProcess(clientId: string): boolean {
+        return this.processes.has(clientId);
     }
 
     /**
      * AskUserQuestion 답변을 PTY stdin으로 전송
      * 각 줄마다 Enter 전송 (복수 질문 지원, 딜레이 포함)
      */
-    async writeAnswerAsync(sessionId: string, answer: string): Promise<boolean> {
-        const cp = this.processes.get(sessionId);
+    async writeAnswerAsync(clientId: string, answer: string): Promise<boolean> {
+        const cp = this.processes.get(clientId);
         if (!cp) {
-            console.log(`[PTY MANAGER] No process found for answer: session ${sessionId}`);
+            console.log(`[PTY MANAGER] No process found for answer: client ${clientId.substring(0, 8)}`);
             return false;
         }
 
@@ -258,7 +336,7 @@ class ClaudeProcessManager {
 
         // 복수 질문인 경우 각 줄마다 Enter 전송 (딜레이 포함)
         const lines = answer.split('\n');
-        console.log(`[PTY MANAGER] Sending ${lines.length} answer line(s) for session ${sessionId}`);
+        console.log(`[PTY MANAGER] Sending ${lines.length} answer line(s) for client ${clientId.substring(0, 8)}`);
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -280,10 +358,10 @@ class ClaudeProcessManager {
     /**
      * AskUserQuestion 답변을 PTY stdin으로 전송 (동기 버전 - 단일 답변용)
      */
-    writeAnswer(sessionId: string, answer: string): boolean {
-        const cp = this.processes.get(sessionId);
+    writeAnswer(clientId: string, answer: string): boolean {
+        const cp = this.processes.get(clientId);
         if (!cp) {
-            console.log(`[PTY MANAGER] No process found for answer: session ${sessionId}`);
+            console.log(`[PTY MANAGER] No process found for answer: client ${clientId.substring(0, 8)}`);
             return false;
         }
 
@@ -292,7 +370,7 @@ class ClaudeProcessManager {
 
         // 단일 답변: 텍스트 + Enter
         cp.pty.write(answer + '\r');
-        console.log(`[PTY MANAGER] Answer sent to PTY stdin for session ${sessionId}`);
+        console.log(`[PTY MANAGER] Answer sent to PTY stdin for client ${clientId.substring(0, 8)}`);
         return true;
     }
 }
