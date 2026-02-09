@@ -275,7 +275,14 @@ export const useSSEConnection = (
             }
             // session_status 처리 (SSE 재연결 시 초기 동기화)
             else if (data.type === "session_status") {
-                const {status, backgroundTasksCount} = data.data || data;
+                const statusData = data.data || data;
+                const {status, backgroundTasksCount} = statusData;
+
+                // 다른 세션의 status 이벤트는 무시 (global broadcast로 전달될 수 있음)
+                if (statusData.sessionId && statusData.sessionId !== sessionId) {
+                    return;
+                }
+
                 console.log("[SSE] session_status:", status);
 
                 queryClient.setQueryData(["session", sessionId], (old: any) => {
