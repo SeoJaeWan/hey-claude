@@ -4,6 +4,7 @@
  * - POST /api/chat/start - PTY 세션 시작
  * - POST /api/chat/send - PTY stdin 메시지 전송 (fire-and-forget)
  * - POST /api/chat/tool-result - AskUserQuestion 답변을 PTY stdin으로 전송
+ * - POST /api/chat/stop - Claude 작업 중단 (Ctrl+C 시그널 전송)
  *
  * 응답 수신 방식:
  * - 도구 사용: Hooks (PostToolUse) → SSE tool_use_message
@@ -342,6 +343,53 @@ router.post("/permission-decide", async (req, res) => {
     } catch (error) {
         console.log("[CHAT] PermissionDecide error:", error);
         res.status(500).json({ error: { code: "PERMISSION_DECIDE_FAILED", message: error instanceof Error ? error.message : "Unknown error" } });
+    }
+});
+
+// POST /api/chat/stop - Claude 작업 중단 (Ctrl+C)
+router.post("/stop", (req, res) => {
+    try {
+        const { sessionId } = req.body;
+        console.log("[CHAT STOP] Request received:", { sessionId });
+
+        if (!sessionId) {
+            res.status(400).json({
+                error: {
+                    code: "MISSING_PARAMETERS",
+                    message: "sessionId is required"
+                }
+            });
+            return;
+        }
+
+        // PTY에 Ctrl+C 시그널 전송 (ESC 03)
+        const success = claudeProcessManager.write(sessionId, '\x03');
+
+        if (success) {
+            // SSE로 프론트엔드에 알림
+            sseManager.broadcastToSession(sessionId, {
+                type: "stop_requested",
+                sessionId
+            });
+            console.log("[CHAT STOP] Stop signal sent to PTY");
+            res.json({ success: true });
+        } else {
+            console.log("[CHAT STOP] No active PTY process");
+            res.status(404).json({
+                error: {
+                    code: "NO_PROCESS",
+                    message: "No active process for this session"
+                }
+            });
+        }
+    } catch (error) {
+        console.log("[CHAT STOP] Error:", error);
+        res.status(500).json({
+            error: {
+                code: "STOP_FAILED",
+                message: error instanceof Error ? error.message : "Unknown error"
+            }
+        });
     }
 });
 
