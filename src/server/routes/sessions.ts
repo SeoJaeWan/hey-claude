@@ -6,22 +6,13 @@ import sessionStatusManager from "../services/sessionStatusManager.js";
 const router: RouterType = Router();
 
 // GET /api/sessions - 세션 목록 조회
-router.get("/", async (req, res) => {
+router.get("/", async (_req, res) => {
     try {
-        const { projectPath } = req.query;
         const db = getDatabase();
 
-        let query = "SELECT * FROM sessions";
-        const params: string[] = [];
+        const query = "SELECT * FROM sessions ORDER BY updated_at DESC";
 
-        if (projectPath) {
-            query += " WHERE project_path = ?";
-            params.push(projectPath as string);
-        }
-
-        query += " ORDER BY updated_at DESC";
-
-        const sessions = db.prepare(query).all(...params) as any[];
+        const sessions = db.prepare(query).all() as any[];
 
         // Attach current status to each session
         const sessionsWithStatus = sessions.map(session => {
@@ -51,13 +42,13 @@ router.get("/", async (req, res) => {
 // POST /api/sessions - 세션 생성
 router.post("/", async (req, res) => {
     try {
-        const { type, name, projectPath, model } = req.body;
+        const { type, name, model } = req.body;
 
-        if (!type || !projectPath) {
+        if (!type) {
             return res.status(400).json({
                 error: {
                     code: "INVALID_INPUT",
-                    message: "type and projectPath are required",
+                    message: "type is required",
                 },
             });
         }
@@ -65,6 +56,7 @@ router.post("/", async (req, res) => {
         const db = getDatabase();
         const id = randomUUID();
         const now = new Date().toISOString();
+        const projectPath = process.cwd();
 
         db.prepare(`
             INSERT INTO sessions (id, type, model, name, project_path, source, status, created_at, updated_at)

@@ -33,8 +33,8 @@ export const pendingPermissions = new Map<string, PendingPermission>();
  * Claude는 ~/.claude/projects/{project-hash}/{session-id}.jsonl 에 transcript 저장
  * project-hash: 프로젝트 경로에서 : → -, / 또는 \ → - 로 변환
  */
-const findTranscriptPath = (claudeSessionId: string, projectPath?: string): string | null => {
-    if (!projectPath) return null;
+const findTranscriptPath = (claudeSessionId: string): string | null => {
+    const projectPath = process.cwd();
 
     // 프로젝트 경로를 Claude의 해시 형식으로 변환
     // C:\Users\sjw73\Desktop\dev\hey-claude → C--Users-sjw73-Desktop-dev-hey-claude
@@ -129,18 +129,17 @@ const parseQuestionAnswers = (toolInput: any, toolResponse: any) => {
 // POST /api/hooks/session - SessionStart Hook
 interface SessionHookRequest {
     sessionId: string;
-    projectPath: string;
     source: 'startup' | 'resume' | 'clear' | 'compact';
     model: string;
 }
 
 router.post("/session", async (req, res) => {
     try {
-        const { sessionId, projectPath, source, model } = req.body as SessionHookRequest;
+        const { sessionId, source, model } = req.body as SessionHookRequest;
 
-        console.log("[HOOKS] SessionStart received:", { sessionId, projectPath, source, model });
+        console.log("[HOOKS] SessionStart received:", { sessionId, source, model });
 
-        if (!sessionId || !projectPath) {
+        if (!sessionId) {
             return res.json({ success: true });
         }
 
@@ -187,14 +186,13 @@ router.post("/session", async (req, res) => {
                 const now = new Date().toISOString();
 
                 db.prepare(`
-                    INSERT INTO sessions (id, type, claude_session_id, model, project_path, source, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO sessions (id, type, claude_session_id, model, source, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(
                     newSessionId,
                     "claude-code",
                     sessionId,
                     model || null,
-                    projectPath,
                     source === 'resume' ? 'terminal' : 'web',
                     "active",
                     now,
@@ -217,7 +215,6 @@ router.post("/session", async (req, res) => {
 interface ToolUseHookRequest {
     type: 'pre' | 'post';
     sessionId?: string;
-    projectPath?: string;
     toolUseId?: string;
     toolName: string;
     toolInput: any;
@@ -227,18 +224,17 @@ interface ToolUseHookRequest {
 router.post("/tool-use", async (req, res) => {
     try {
         // PreToolUse와 PostToolUse 모두 처리
-        const { type, sessionId, projectPath, toolUseId, toolName, toolInput, toolOutput } = req.body as ToolUseHookRequest;
+        const { type, sessionId, toolUseId, toolName, toolInput, toolOutput } = req.body as ToolUseHookRequest;
 
-        // 기존 PostToolUse hook 형식 (session_id, cwd, tool_name 등)도 지원
+        // 기존 PostToolUse hook 형식 (session_id, tool_name 등)도 지원
         const claudeSessionId = sessionId || req.body.session_id;
-        const cwd = projectPath || req.body.cwd;
         const tool_name = toolName || req.body.tool_name;
         const tool_input = toolInput || req.body.tool_input;
         const tool_response = toolOutput || req.body.tool_response;
 
         console.log("[HOOKS] ToolUse received:", { type, claudeSessionId, toolName: tool_name, toolUseId });
 
-        if (!claudeSessionId || !cwd || !tool_name) {
+        if (!claudeSessionId || !tool_name) {
             return res.json({
                 continue: true,
                 suppressOutput: true,
@@ -257,9 +253,9 @@ router.post("/tool-use", async (req, res) => {
             const now = new Date().toISOString();
 
             db.prepare(`
-                INSERT INTO sessions (id, type, claude_session_id, project_path, source, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(internalSessionId, "claude-code", claudeSessionId, cwd, "terminal", "active", now, now);
+                INSERT INTO sessions (id, type, claude_session_id, source, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(internalSessionId, "claude-code", claudeSessionId, "terminal", "active", now, now);
         } else {
             internalSessionId = session.id;
         }
@@ -353,7 +349,7 @@ router.post("/tool-use", async (req, res) => {
 
             // transcript에서 중간 assistant 텍스트 캡처 (도구 사용 전 텍스트)
             try {
-                const transcriptPath = findTranscriptPath(claudeSessionId, cwd);
+                const transcriptPath = findTranscriptPath(claudeSessionId);
                 if (transcriptPath) {
                     const lastUuid = sessionStatusManager.getLastProcessedUuid(internalSessionId);
                     const lastOffset = sessionStatusManager.getLastReadOffset(internalSessionId);
@@ -388,7 +384,7 @@ router.post("/tool-use", async (req, res) => {
             }
 
             // 비동기로 압축 수행 (응답 지연 방지)
-            compressToolUsage(cwd, {
+            compressToolUsage(process.cwd(), {
                 toolName: tool_name,
                 toolInput: tool_input || {},
                 toolOutput: tool_response || {},
@@ -430,7 +426,7 @@ router.post("/tool-use", async (req, res) => {
 // POST /api/hooks/user-prompt - UserPromptSubmit Hook
 router.post("/user-prompt", async (req, res) => {
     try {
-        const { sessionId: claudeSessionId, prompt, projectPath } = req.body;
+        const { sessionId: claudeSessionId, prompt } = req.body;
         console.log("[HOOKS] UserPromptSubmit received:", { claudeSessionId, promptLength: prompt?.length });
 
         if (!claudeSessionId || !prompt) {
@@ -448,9 +444,9 @@ router.post("/user-prompt", async (req, res) => {
             internalSessionId = randomUUID();
             const now = new Date().toISOString();
             db.prepare(`
-                INSERT INTO sessions (id, type, claude_session_id, project_path, source, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(internalSessionId, "claude-code", claudeSessionId, projectPath, "terminal", "active", now, now);
+                INSERT INTO sessions (id, type, claude_session_id, source, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(internalSessionId, "claude-code", claudeSessionId, "terminal", "active", now, now);
             sessionMappingCache.set(claudeSessionId, internalSessionId);
             console.log(`[HOOKS] UserPromptSubmit: Created new session ${internalSessionId} for claude ${claudeSessionId}`);
         } else {
@@ -642,7 +638,7 @@ router.post("/permission-decide", async (req, res) => {
 router.post("/stop", async (req, res) => {
     try {
         console.log("[HOOKS] Stop received:", { sessionId: req.body.sessionId || req.body.session_id });
-        const { sessionId, session_id, projectPath, transcript_path } = req.body;
+        const { sessionId, session_id, transcript_path } = req.body;
         const claudeSessionId = sessionId || session_id;
 
         if (!claudeSessionId) {
@@ -663,7 +659,7 @@ router.post("/stop", async (req, res) => {
         const internalSessionId = session.id;
 
         // transcript_path 확인 (없으면 자동 탐색)
-        const resolvedTranscriptPath = transcript_path || findTranscriptPath(claudeSessionId, projectPath || req.body.cwd);
+        const resolvedTranscriptPath = transcript_path || findTranscriptPath(claudeSessionId);
 
         // transcript에서 아직 보내지 않은 assistant 메시지 추출 (UUID 기반 중복 방지)
         if (resolvedTranscriptPath) {
