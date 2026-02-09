@@ -17,7 +17,6 @@ interface Snippet {
 
 interface SnippetRow {
     id: string;
-    project_path: string;
     trigger: string;
     name: string;
     content: string;
@@ -41,19 +40,8 @@ const rowToSnippet = (row: SnippetRow): Snippet => ({
 // GET /api/snippets - 스니펫 목록 조회
 router.get("/", async (req, res) => {
     try {
-        const { projectPath } = req.query;
-
-        if (!projectPath) {
-            return res.status(400).json({
-                error: {
-                    code: "INVALID_INPUT",
-                    message: "projectPath is required",
-                },
-            });
-        }
-
         const db = getDatabase();
-        const rows = db.prepare("SELECT * FROM snippets WHERE project_path = ? ORDER BY created_at DESC").all(projectPath as string) as SnippetRow[];
+        const rows = db.prepare("SELECT * FROM snippets ORDER BY created_at DESC").all() as SnippetRow[];
         const snippets = rows.map(rowToSnippet);
 
         res.json({
@@ -73,13 +61,13 @@ router.get("/", async (req, res) => {
 // POST /api/snippets - 스니펫 생성
 router.post("/", async (req, res) => {
     try {
-        const { trigger, name, content, category, projectPath } = req.body;
+        const { trigger, name, content, category } = req.body;
 
-        if (!trigger || !name || !content || !projectPath) {
+        if (!trigger || !name || !content) {
             return res.status(400).json({
                 error: {
                     code: "INVALID_INPUT",
-                    message: "trigger, name, content, and projectPath are required",
+                    message: "trigger, name, and content are required",
                 },
             });
         }
@@ -87,7 +75,7 @@ router.post("/", async (req, res) => {
         const db = getDatabase();
 
         // 중복 트리거 확인
-        const existing = db.prepare("SELECT id FROM snippets WHERE project_path = ? AND trigger = ?").get(projectPath, trigger);
+        const existing = db.prepare("SELECT id FROM snippets WHERE trigger = ?").get(trigger);
         if (existing) {
             return res.status(400).json({
                 error: {
@@ -101,9 +89,9 @@ router.post("/", async (req, res) => {
         const id = randomUUID();
 
         db.prepare(`
-            INSERT INTO snippets (id, project_path, trigger, name, content, category, usage_count, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, projectPath, trigger, name, content, category || "general", 0, now, now);
+            INSERT INTO snippets (id, trigger, name, content, category, usage_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, trigger, name, content, category || "general", 0, now, now);
 
         const newSnippet: Snippet = {
             id,
@@ -134,21 +122,12 @@ router.post("/", async (req, res) => {
 router.patch("/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        const { trigger, name, content, category, projectPath } = req.body;
-
-        if (!projectPath) {
-            return res.status(400).json({
-                error: {
-                    code: "INVALID_INPUT",
-                    message: "projectPath is required",
-                },
-            });
-        }
+        const { trigger, name, content, category } = req.body;
 
         const db = getDatabase();
 
         // 기존 스니펫 조회
-        const existingRow = db.prepare("SELECT * FROM snippets WHERE id = ? AND project_path = ?").get(id, projectPath) as SnippetRow | undefined;
+        const existingRow = db.prepare("SELECT * FROM snippets WHERE id = ?").get(id) as SnippetRow | undefined;
 
         if (!existingRow) {
             return res.status(404).json({
@@ -161,7 +140,7 @@ router.patch("/:id", async (req, res) => {
 
         // 트리거 변경 시 중복 확인
         if (trigger && trigger !== existingRow.trigger) {
-            const duplicate = db.prepare("SELECT id FROM snippets WHERE project_path = ? AND trigger = ? AND id != ?").get(projectPath, trigger, id);
+            const duplicate = db.prepare("SELECT id FROM snippets WHERE trigger = ? AND id != ?").get(trigger, id);
             if (duplicate) {
                 return res.status(400).json({
                     error: {
@@ -182,8 +161,8 @@ router.patch("/:id", async (req, res) => {
         db.prepare(`
             UPDATE snippets
             SET trigger = ?, name = ?, content = ?, category = ?, updated_at = ?
-            WHERE id = ? AND project_path = ?
-        `).run(updatedTrigger, updatedName, updatedContent, updatedCategory, now, id, projectPath);
+            WHERE id = ?
+        `).run(updatedTrigger, updatedName, updatedContent, updatedCategory, now, id);
 
         const updatedSnippet: Snippet = {
             id: existingRow.id,
@@ -214,21 +193,11 @@ router.patch("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        const { projectPath } = req.query;
-
-        if (!projectPath) {
-            return res.status(400).json({
-                error: {
-                    code: "INVALID_INPUT",
-                    message: "projectPath is required",
-                },
-            });
-        }
 
         const db = getDatabase();
 
         // 존재 확인
-        const existing = db.prepare("SELECT id FROM snippets WHERE id = ? AND project_path = ?").get(id, projectPath as string);
+        const existing = db.prepare("SELECT id FROM snippets WHERE id = ?").get(id);
 
         if (!existing) {
             return res.status(404).json({
@@ -240,7 +209,7 @@ router.delete("/:id", async (req, res) => {
         }
 
         // 삭제
-        db.prepare("DELETE FROM snippets WHERE id = ? AND project_path = ?").run(id, projectPath as string);
+        db.prepare("DELETE FROM snippets WHERE id = ?").run(id);
 
         res.json({
             data: { deleted: true },
