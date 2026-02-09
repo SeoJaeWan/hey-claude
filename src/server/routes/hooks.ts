@@ -64,8 +64,15 @@ const resolveInternalSession = (claudeSessionId: string): { id: string } | undef
 
     const db = getDatabase();
 
-    // 2. DB에서 조회
-    const direct = db.prepare("SELECT id FROM sessions WHERE claude_session_id = ?").get(claudeSessionId) as { id: string } | undefined;
+    // 2. DB에서 조회 (type과 status도 필터링)
+    const direct = db.prepare(`
+        SELECT id FROM sessions
+        WHERE claude_session_id = ?
+          AND type = 'claude-code'
+          AND status = 'active'
+        ORDER BY updated_at DESC
+        LIMIT 1
+    `).get(claudeSessionId) as { id: string } | undefined;
     if (direct) {
         sessionMappingCache.set(claudeSessionId, direct.id);
         return direct;
