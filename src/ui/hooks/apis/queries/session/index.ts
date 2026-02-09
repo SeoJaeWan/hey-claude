@@ -16,7 +16,7 @@ const mapSession = (raw: any): Session => ({
     claudeSessionId: raw.claude_session_id,
     model: raw.model,
     createdAt: raw.created_at,
-    updatedAt: raw.updated_at,
+    updatedAt: raw.updated_at
 });
 
 // 세션 정렬 함수
@@ -135,6 +135,19 @@ export const useDeleteSession = () => {
     });
 };
 
+// 세션 존재 여부 확인 후 없으면 목록 갱신
+const ensureSessionInCache = (queryClient: ReturnType<typeof useQueryClient>, sessionId: string): boolean => {
+    const sessions = queryClient.getQueryData<Session[]>(["sessions"]);
+    const exists = sessions?.some(s => s.id === sessionId) ?? false;
+
+    if (!exists) {
+        console.log("[Global SSE] Session not in cache, refreshing list:", sessionId);
+        queryClient.invalidateQueries({queryKey: ["sessions"]});
+    }
+
+    return exists;
+};
+
 // 전역 SSE 연결 (세션 상태 업데이트)
 export const useGlobalSSE = () => {
     const queryClient = useQueryClient();
@@ -150,8 +163,11 @@ export const useGlobalSSE = () => {
                 // 해당 세션의 캐시 무효화 → 돌아갔을 때 자동 refetch
                 queryClient.invalidateQueries({queryKey: ["session", updatedSessionId]});
 
-                // turn_complete이면 세션 목록도 갱신
-                if (eventType === "turn_complete") {
+                // 세션이 캐시에 없으면 목록 갱신
+                const exists = ensureSessionInCache(queryClient, updatedSessionId);
+
+                // turn_complete이면 세션 목록도 갱신 (이미 갱신 안했다면)
+                if (eventType === "turn_complete" && exists) {
                     queryClient.invalidateQueries({queryKey: ["sessions"]});
                 }
             }
@@ -161,11 +177,16 @@ export const useGlobalSSE = () => {
 
                 console.log("[Global SSE] Received session_status:", {sessionId, status, backgroundTasksCount});
 
+                // 세션이 캐시에 없으면 목록 갱신 후 리턴
+                if (!ensureSessionInCache(queryClient, sessionId)) {
+                    return;
+                }
+
                 // React Query 캐시 업데이트
                 queryClient.setQueryData(["sessions"], (old: Session[] | undefined) => {
                     if (!old) return old;
 
-                    const updated = old.map((session) => {
+                    const updated = old.map(session => {
                         if (session.id === sessionId) {
                             return {
                                 ...session,
@@ -241,18 +262,12 @@ export const useSSEConnection = (
                     };
 
                     // 중복 체크
-                    const isDuplicate = old.pages.some((page: any) =>
-                        page.data.some((m: any) => m.id === rawMsg.id)
-                    );
+                    const isDuplicate = old.pages.some((page: any) => page.data.some((m: any) => m.id === rawMsg.id));
                     if (isDuplicate) return old;
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) =>
-                            i === lastPageIndex
-                                ? { ...page, data: [...page.data, rawMsg] }
-                                : page
-                        ),
+                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
                     };
                 });
             }
@@ -280,18 +295,12 @@ export const useSSEConnection = (
                     };
 
                     // 중복 체크
-                    const isDuplicate = old.pages.some((page: any) =>
-                        page.data.some((m: any) => m.id === questionMsgId)
-                    );
+                    const isDuplicate = old.pages.some((page: any) => page.data.some((m: any) => m.id === questionMsgId));
                     if (isDuplicate) return old;
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) =>
-                            i === lastPageIndex
-                                ? { ...page, data: [...page.data, rawMsg] }
-                                : page
-                        ),
+                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
                     };
                 });
             }
@@ -312,18 +321,12 @@ export const useSSEConnection = (
                     };
 
                     // 중복 체크
-                    const isDuplicate = old.pages.some((page: any) =>
-                        page.data.some((m: any) => m.id === rawMsg.id)
-                    );
+                    const isDuplicate = old.pages.some((page: any) => page.data.some((m: any) => m.id === rawMsg.id));
                     if (isDuplicate) return old;
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) =>
-                            i === lastPageIndex
-                                ? { ...page, data: [...page.data, rawMsg] }
-                                : page
-                        ),
+                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
                     };
                 });
             }
@@ -344,18 +347,12 @@ export const useSSEConnection = (
                     };
 
                     // 중복 체크
-                    const isDuplicate = old.pages.some((page: any) =>
-                        page.data.some((m: any) => m.id === rawMsg.id)
-                    );
+                    const isDuplicate = old.pages.some((page: any) => page.data.some((m: any) => m.id === rawMsg.id));
                     if (isDuplicate) return old;
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) =>
-                            i === lastPageIndex
-                                ? { ...page, data: [...page.data, rawMsg] }
-                                : page
-                        ),
+                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
                     };
                 });
             }
@@ -381,18 +378,12 @@ export const useSSEConnection = (
                         }
                     };
 
-                    const isDuplicate = old.pages.some((page: any) =>
-                        page.data.some((m: any) => m.id === permMsgId)
-                    );
+                    const isDuplicate = old.pages.some((page: any) => page.data.some((m: any) => m.id === permMsgId));
                     if (isDuplicate) return old;
 
                     return {
                         ...old,
-                        pages: old.pages.map((page: any, i: number) =>
-                            i === lastPageIndex
-                                ? { ...page, data: [...page.data, rawMsg] }
-                                : page
-                        ),
+                        pages: old.pages.map((page: any, i: number) => (i === lastPageIndex ? {...page, data: [...page.data, rawMsg]} : page))
                     };
                 });
             }
@@ -466,14 +457,14 @@ export const useSSEConnection = (
                                 // Pending question → submitted
                                 if (msg.isQuestion && msg.questionData && !msg.questionSubmitted) {
                                     hasChanges = true;
-                                    return { ...msg, questionSubmitted: true };
+                                    return {...msg, questionSubmitted: true};
                                 }
                                 // Pending permission → expired
                                 if (msg.permission_data && !msg.permission_data.decided) {
                                     hasChanges = true;
                                     return {
                                         ...msg,
-                                        permission_data: { ...msg.permission_data, decided: true }
+                                        permission_data: {...msg.permission_data, decided: true}
                                     };
                                 }
                                 return msg;
