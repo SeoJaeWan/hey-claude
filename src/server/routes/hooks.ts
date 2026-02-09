@@ -1,7 +1,7 @@
 import { Router, type Router as RouterType } from "express";
 import { getDatabase } from "../services/database.js";
 import { randomUUID } from "crypto";
-import { compressToolUsage } from "../services/compression.js";
+
 import sseManager from "../services/sseManager.js";
 import { buildMessageFromToolUse } from "../services/messageBuilder.js";
 import { getNewAssistantTexts } from "../services/transcriptParser.js";
@@ -337,7 +337,7 @@ router.post("/tool-use", async (req, res) => {
         // PostToolUse: 도구 사용 내역 저장
         if (type === 'post' || !type) {
             const now = new Date().toISOString();
-            const result = db.prepare(`
+            db.prepare(`
                 INSERT INTO tool_usages (session_id, tool_name, tool_input, tool_output, timestamp)
                 VALUES (?, ?, ?, ?, ?)
             `).run(
@@ -347,8 +347,6 @@ router.post("/tool-use", async (req, res) => {
                 JSON.stringify(tool_response || {}),
                 now
             );
-
-            const toolUsageId = result.lastInsertRowid;
 
             // 세션 업데이트 시간 갱신
             db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, internalSessionId);
@@ -435,31 +433,6 @@ router.post("/tool-use", async (req, res) => {
                 console.error("[HOOKS] Intermediate text extraction failed:", error);
             }
 
-            // 비동기로 압축 수행 (응답 지연 방지)
-            compressToolUsage(process.cwd(), {
-                toolName: tool_name,
-                toolInput: tool_input || {},
-                toolOutput: tool_response || {},
-            })
-                .then((compression) => {
-                    if (compression) {
-                        db.prepare(`
-                            UPDATE tool_usages
-                            SET compressed_type = ?, compressed_title = ?, compressed_content = ?, compressed_at = ?
-                            WHERE id = ?
-                        `).run(
-                            compression.type,
-                            compression.title,
-                            compression.content,
-                            new Date().toISOString(),
-                            toolUsageId
-                        );
-                        console.log(`[HOOKS] Compression saved for tool usage ${toolUsageId}`);
-                    }
-                })
-                .catch((error) => {
-                    console.error("[HOOKS] Compression failed:", error);
-                });
         }
 
         res.json({
