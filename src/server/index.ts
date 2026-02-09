@@ -251,13 +251,20 @@ const startServer = async (
             // streaming/background_tasks 상태면 PTY 유지 (hooks.ts stop에서 처리)
         });
 
-        // 7. Cleanup 핸들러 설정
+        // 7. SSE 클라이언트 연결 해제 시 PTY 종료
+        console.log("Setting up SSE client disconnect handler...");
+        sseManager.setOnClientDisconnected((clientId) => {
+            console.log(`[SERVER] SSE client disconnected, terminating PTY for ${clientId.substring(0, 8)}`);
+            claudeProcessManager.terminateForClient(clientId);
+        });
+
+        // 8. Cleanup 핸들러 설정
         setupCleanup(projectPath);
 
-        // 8. 서버 시작
+        // 9. 서버 시작
         await startServer(projectPath, DEFAULT_PORT);
 
-        // 9. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
+        // 10. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
         refreshCommandsCache();
     } catch (err) {
         console.error("Failed to start server:", err);
