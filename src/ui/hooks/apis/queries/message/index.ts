@@ -233,13 +233,13 @@ export const useSubmitQuestionAnswer = () => {
 export const useStopMessage = () => {
   const [isStopping, setIsStopping] = useState(false);
 
-  const stopMessage = useCallback(async (sessionId: string, clientId: string) => {
+  const stopMessage = useCallback(async (sessionId: string, clientId?: string | null) => {
     setIsStopping(true);
     try {
       await fetch("/api/chat/stop", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, clientId }),
+        body: JSON.stringify({ sessionId, clientId: clientId ?? undefined }),
       });
     } catch (err) {
       console.error("[useStopMessage] Error:", err);

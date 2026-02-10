@@ -18,9 +18,37 @@ import { getDatabase } from "../services/database.js";
 import sessionStatusManager from "../services/sessionStatusManager.js";
 import claudeProcessManager from "../services/claudeProcessManager.js";
 import sseManager from "../services/sseManager.js";
-import { pendingPermissions } from "./hooks.js";
+import { execSync } from "child_process";
+import { pendingPermissions, getTerminalControllerPid } from "./hooks.js";
 
 const router: RouterType = Router();
+
+const stopTerminalController = (pid: number): boolean => {
+    try {
+        process.kill(pid, "SIGINT");
+        return true;
+    } catch {
+        // continue fallback
+    }
+
+    try {
+        process.kill(pid);
+        return true;
+    } catch {
+        // continue fallback
+    }
+
+    if (process.platform === "win32") {
+        try {
+            execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+            return true;
+        } catch {
+            // ignore
+        }
+    }
+
+    return false;
+};
 
 // 타입 정의
 interface ToolResultRequest {
@@ -354,6 +382,17 @@ router.post("/permission-decide", async (req, res) => {
         pending.decided = true;
         pending.behavior = behavior;
 
+        // DB 업데이트: permission_data decided/behavior 반영
+        const db = getDatabase();
+        const permMsgId = `permission-${requestId}`;
+        const existingMsg = db.prepare("SELECT permission_data FROM messages WHERE id = ?").get(permMsgId) as { permission_data: string } | undefined;
+        if (existingMsg?.permission_data) {
+            const permData = JSON.parse(existingMsg.permission_data);
+            permData.decided = true;
+            permData.behavior = behavior;
+            db.prepare("UPDATE messages SET permission_data = ? WHERE id = ?").run(JSON.stringify(permData), permMsgId);
+        }
+
         // SSE로 프론트엔드에 알림
         sseManager.broadcastToSession(pending.sessionId, {
             type: "permission_decided",
@@ -377,18 +416,37 @@ router.post("/stop", (req, res) => {
         const { sessionId, clientId } = req.body;
         console.log("[CHAT STOP] Request received:", { sessionId, clientId });
 
-        if (!sessionId || !clientId) {
+        if (!sessionId) {
             res.status(400).json({
                 error: {
                     code: "MISSING_PARAMETERS",
-                    message: "sessionId and clientId are required"
+                    message: "sessionId is required"
                 }
             });
             return;
         }
 
-        // PTY에 Ctrl+C 시그널 전송 (ESC 03)
-        const success = claudeProcessManager.write(clientId, '\x03');
+        // 1) 요청 clientId PTY 중단
+        let success = false;
+        if (clientId) {
+            success = claudeProcessManager.write(clientId, '\x03');
+        }
+
+        // 2) 세션에 연결된 임의 PTY 중단 (다른 브라우저 clientId 포함)
+        if (!success) {
+            success = claudeProcessManager.writeBySession(sessionId, '\x03');
+        }
+
+        // 3) CLI 터미널 세션 중단 (hook에서 수집한 controller PID 기반)
+        if (!success) {
+            const controllerPid = getTerminalControllerPid(sessionId);
+            if (controllerPid) {
+                success = stopTerminalController(controllerPid);
+                if (success) {
+                    console.log(`[CHAT STOP] Stop signal sent to terminal controller pid ${controllerPid}`);
+                }
+            }
+        }
 
         if (success) {
             // SSE로 프론트엔드에 알림
@@ -399,11 +457,11 @@ router.post("/stop", (req, res) => {
             console.log("[CHAT STOP] Stop signal sent to PTY");
             res.json({ success: true });
         } else {
-            console.log("[CHAT STOP] No active PTY process");
+            console.log("[CHAT STOP] No active process found for session");
             res.status(404).json({
                 error: {
                     code: "NO_PROCESS",
-                    message: "No active process for this client"
+                    message: "No active process for this session"
                 }
             });
         }

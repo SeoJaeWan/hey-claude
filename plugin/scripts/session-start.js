@@ -122,6 +122,8 @@ process.stdin.on('end', async () => {
     try {
         const hookData = JSON.parse(inputData);
         const { session_id, cwd, source, model } = hookData;
+        const origin = process.env.HEY_CLAUDE_ORIGIN === 'web' ? 'web' : 'terminal';
+        const controllerPid = process.ppid;
 
         if (!cwd) {
             return;
@@ -138,6 +140,8 @@ process.stdin.on('end', async () => {
             projectPath: cwd,
             source: source || 'startup',
             model: model,
+            origin,
+            controllerPid,
         });
 
         const options = {

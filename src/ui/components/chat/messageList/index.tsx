@@ -48,6 +48,10 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
 
     // sequence를 virtual index로 사용해 prepend/append 모두 안정적으로 처리
     const firstItemIndex = messages[0]?.sequence ?? 0;
+    const initialTopMostItemIndex =
+      typeof messages[messages.length - 1]?.sequence === "number"
+        ? (messages[messages.length - 1]?.sequence as number)
+        : messages.length - 1;
 
     // 상단 도달 시 이전 메시지 로드
     const handleStartReached = useCallback(() => {
@@ -71,11 +75,9 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
           <Virtuoso
             ref={virtuosoRef}
             firstItemIndex={firstItemIndex}
-            initialTopMostItemIndex={messages.length - 1}
+            initialTopMostItemIndex={initialTopMostItemIndex}
             data={messages}
-            computeItemKey={(_, message: MessageType) =>
-              message.sequence ?? message.id
-            }
+            computeItemKey={(_, message: MessageType) => message.id}
             startReached={handleStartReached}
             atBottomStateChange={onAtBottomStateChange}
             followOutput="smooth"

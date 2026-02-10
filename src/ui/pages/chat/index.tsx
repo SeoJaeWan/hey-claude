@@ -187,7 +187,7 @@ const ChatPage = () => {
   };
 
   const handleStop = () => {
-    if (!sessionId || !clientId) return;
+    if (!sessionId) return;
     stopMessage(sessionId, clientId);
   };
 

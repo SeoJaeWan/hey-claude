@@ -50,6 +50,8 @@ process.stdin.on('end', () => {
     try {
         const hookData = JSON.parse(inputData);
         const { session_id, cwd, tool_name, tool_input, tool_response, tool_use_id } = hookData;
+        const origin = process.env.HEY_CLAUDE_ORIGIN === 'web' ? 'web' : 'terminal';
+        const controllerPid = process.ppid;
 
         // 명령줄 인자로 'pre' 전달 시 PreToolUse
         const isPreToolUse = process.argv[2] === 'pre';
@@ -72,6 +74,8 @@ process.stdin.on('end', () => {
             toolName: tool_name,
             toolInput: tool_input,
             toolOutput: tool_response,
+            origin,
+            controllerPid,
         });
 
         const options = {

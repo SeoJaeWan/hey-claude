@@ -131,6 +131,8 @@ process.stdin.on('end', async () => {
     try {
         const hookData = JSON.parse(inputData);
         const { session_id, cwd, tool_name, tool_input, tool_use_id } = hookData;
+        const origin = process.env.HEY_CLAUDE_ORIGIN === 'web' ? 'web' : 'terminal';
+        const controllerPid = process.ppid;
 
         // AskUserQuestion만 처리
         if (tool_name !== 'AskUserQuestion') {
@@ -157,6 +159,8 @@ process.stdin.on('end', async () => {
             toolUseId: tool_use_id,
             toolName: tool_name,
             toolInput: tool_input,
+            origin,
+            controllerPid,
         });
 
         const options = {

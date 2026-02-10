@@ -87,7 +87,11 @@ class ClaudeProcessManager {
             cols: 120,
             rows: 30,
             cwd: cwd || process.cwd(),
-            env: process.env as { [key: string]: string }
+            env: {
+                ...(process.env as { [key: string]: string }),
+                HEY_CLAUDE_ORIGIN: 'web',
+                HEY_CLAUDE_INTERNAL_SESSION_ID: sessionId,
+            }
         });
 
         const claudeProcess: ClaudeProcess = {
@@ -214,6 +218,22 @@ class ClaudeProcessManager {
     }
 
     /**
+     * 세션 ID로 PTY stdin 입력 전송 (clientId를 모를 때 사용)
+     */
+    writeBySession(sessionId: string, data: string): boolean {
+        for (const [clientId, cp] of this.processes.entries()) {
+            if (cp.currentSessionId === sessionId) {
+                cp.lastActivityAt = new Date();
+                cp.state = 'processing';
+                console.log(`[PTY WRITE] [Session: ${sessionId.substring(0, 8)}] via client ${clientId.substring(0, 8)} (${data.length} chars)`);
+                cp.pty.write(data);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * PTY stdout 데이터 구독
      */
     onData(clientId: string, callback: OutputCallback): () => void {
@@ -283,11 +303,13 @@ class ClaudeProcessManager {
      * @deprecated Use terminateForClient() instead
      */
     terminateProcess(sessionId: string): void {
-        const cp = this.processes.get(sessionId);
-        if (cp) {
-            console.log(`[PTY MANAGER] Terminating process for session ${sessionId.substring(0, 8)}`);
-            cp.pty.kill();
-            this.processes.delete(sessionId);
+        for (const [clientId, cp] of this.processes.entries()) {
+            if (cp.currentSessionId === sessionId || clientId === sessionId) {
+                console.log(`[PTY MANAGER] Terminating process for session ${sessionId.substring(0, 8)} (client ${clientId.substring(0, 8)})`);
+                cp.pty.kill();
+                this.processes.delete(clientId);
+                return;
+            }
         }
     }
 
@@ -318,6 +340,18 @@ class ClaudeProcessManager {
      */
     hasProcess(clientId: string): boolean {
         return this.processes.has(clientId);
+    }
+
+    /**
+     * 세션에 연결된 PTY 존재 여부 확인
+     */
+    hasProcessForSession(sessionId: string): boolean {
+        for (const cp of this.processes.values()) {
+            if (cp.currentSessionId === sessionId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

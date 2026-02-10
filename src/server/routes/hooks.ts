@@ -39,6 +39,60 @@ export interface PendingPermission {
 }
 export const pendingPermissions = new Map<string, PendingPermission>();
 
+type SessionSource = "terminal" | "web";
+
+interface TerminalSessionController {
+    claudeSessionId: string;
+    controllerPid: number;
+    updatedAt: number;
+}
+
+// 내부 세션 ID → CLI 프로세스 제어 정보
+const terminalSessionControllers = new Map<string, TerminalSessionController>();
+
+const parseHookSource = (value: unknown): SessionSource | null => {
+    return value === "web" || value === "terminal" ? value : null;
+};
+
+const parseControllerPid = (value: unknown): number | undefined => {
+    const pid = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(pid) || pid <= 0) return undefined;
+    return Math.trunc(pid);
+};
+
+const registerTerminalController = (sessionId: string, claudeSessionId: string, controllerPid?: number): void => {
+    if (!controllerPid) return;
+
+    const now = Date.now();
+    const staleMs = 24 * 60 * 60 * 1000;
+
+    // 오래된 엔트리 정리
+    for (const [sid, controller] of terminalSessionControllers.entries()) {
+        if (now - controller.updatedAt > staleMs) {
+            terminalSessionControllers.delete(sid);
+        }
+    }
+
+    terminalSessionControllers.set(sessionId, {
+        claudeSessionId,
+        controllerPid,
+        updatedAt: now,
+    });
+};
+
+const resolveSessionSource = (
+    explicitSource: SessionSource | null,
+    fallbackSource?: string
+): SessionSource => {
+    if (explicitSource) return explicitSource;
+    if (fallbackSource === "web" || fallbackSource === "terminal") return fallbackSource;
+    return "terminal";
+};
+
+export const getTerminalControllerPid = (sessionId: string): number | undefined => {
+    return terminalSessionControllers.get(sessionId)?.controllerPid;
+};
+
 /**
  * Claude transcript 파일 경로 구성
  * Claude는 ~/.claude/projects/{project-hash}/{session-id}.jsonl 에 transcript 저장
@@ -142,13 +196,17 @@ interface SessionHookRequest {
     sessionId: string;
     source: 'startup' | 'resume' | 'clear' | 'compact';
     model: string;
+    origin?: SessionSource;
+    controllerPid?: number;
 }
 
 router.post("/session", async (req, res) => {
     try {
-        const { sessionId, source, model } = req.body as SessionHookRequest;
+        const { sessionId, source, model, origin, controllerPid } = req.body as SessionHookRequest;
+        const explicitSource = parseHookSource(origin);
+        const runtimeControllerPid = parseControllerPid(controllerPid);
 
-        console.log("[HOOKS] SessionStart received:", { sessionId, source, model });
+        console.log("[HOOKS] SessionStart received:", { sessionId, source, model, origin, controllerPid: runtimeControllerPid });
 
         if (!sessionId) {
             return res.json({ success: true });
@@ -160,12 +218,18 @@ router.post("/session", async (req, res) => {
         const existingSession = db.prepare("SELECT id FROM sessions WHERE claude_session_id = ?").get(sessionId);
 
         if (existingSession) {
+            const existing = existingSession as { id: string };
+            const sourceToSave = resolveSessionSource(explicitSource, source === "resume" ? "terminal" : "web");
             // 기존 세션 업데이트
             db.prepare(`
                 UPDATE sessions
                 SET updated_at = ?, source = ?
                 WHERE claude_session_id = ?
-            `).run(new Date().toISOString(), source === 'resume' ? 'terminal' : 'web', sessionId);
+            `).run(new Date().toISOString(), sourceToSave, sessionId);
+
+            if (sourceToSave === "terminal") {
+                registerTerminalController(existing.id, sessionId, runtimeControllerPid);
+            }
 
             console.log(`[HOOKS] SessionStart: Updated existing session ${sessionId}`);
         } else {
@@ -182,19 +246,24 @@ router.post("/session", async (req, res) => {
             if (unlinked) {
                 // 기존 미연결 세션에 claude_session_id 연결
                 const now = new Date().toISOString();
+                const sourceToSave = resolveSessionSource(explicitSource, source === "resume" ? "terminal" : "web");
                 db.prepare(`
                     UPDATE sessions
                     SET claude_session_id = ?, model = ?, source = ?, updated_at = ?
                     WHERE id = ?
-                `).run(sessionId, model || null, source === 'resume' ? 'terminal' : 'web', now, unlinked.id);
+                `).run(sessionId, model || null, sourceToSave, now, unlinked.id);
 
                 // 캐시에도 저장
                 sessionMappingCache.set(sessionId, unlinked.id);
+                if (sourceToSave === "terminal") {
+                    registerTerminalController(unlinked.id, sessionId, runtimeControllerPid);
+                }
                 console.log(`[HOOKS] SessionStart: Linked claude_session_id ${sessionId} → existing session ${unlinked.id}`);
             } else {
                 // 미연결 세션 없음 → 터미널에서 직접 시작된 세션
                 const newSessionId = randomUUID();
                 const now = new Date().toISOString();
+                const sourceToSave = resolveSessionSource(explicitSource, source === "resume" ? "terminal" : "web");
 
                 db.prepare(`
                     INSERT INTO sessions (id, type, claude_session_id, model, source, status, created_at, updated_at)
@@ -204,13 +273,16 @@ router.post("/session", async (req, res) => {
                     "claude-code",
                     sessionId,
                     model || null,
-                    source === 'resume' ? 'terminal' : 'web',
+                    sourceToSave,
                     "active",
                     now,
                     now
                 );
 
                 sessionMappingCache.set(sessionId, newSessionId);
+                if (sourceToSave === "terminal") {
+                    registerTerminalController(newSessionId, sessionId, runtimeControllerPid);
+                }
                 console.log(`[HOOKS] SessionStart: Created new session ${newSessionId} for claude_session_id ${sessionId}`);
             }
         }
@@ -230,12 +302,16 @@ interface ToolUseHookRequest {
     toolName: string;
     toolInput: any;
     toolOutput?: any;  // post only
+    origin?: SessionSource;
+    controllerPid?: number;
 }
 
 router.post("/tool-use", async (req, res) => {
     try {
         // PreToolUse와 PostToolUse 모두 처리
-        const { type, sessionId, toolUseId, toolName, toolInput, toolOutput } = req.body as ToolUseHookRequest;
+        const { type, sessionId, toolUseId, toolName, toolInput, toolOutput, origin, controllerPid } = req.body as ToolUseHookRequest;
+        const explicitSource = parseHookSource(origin);
+        const runtimeControllerPid = parseControllerPid(controllerPid);
 
         // 기존 PostToolUse hook 형식 (session_id, tool_name 등)도 지원
         const claudeSessionId = sessionId || req.body.session_id;
@@ -258,22 +334,33 @@ router.post("/tool-use", async (req, res) => {
         // 세션 조회 (자동 매핑 포함)
         let session = resolveInternalSession(claudeSessionId);
         let internalSessionId: string;
-        let sessionSource: string = "terminal"; // 기본값
+        let sessionSource: SessionSource = "terminal"; // 기본값
 
         if (!session) {
             // 터미널에서 생성된 세션 - 새로 등록
             internalSessionId = randomUUID();
             const now = new Date().toISOString();
+            sessionSource = resolveSessionSource(explicitSource, "terminal");
 
             db.prepare(`
                 INSERT INTO sessions (id, type, claude_session_id, source, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(internalSessionId, "claude-code", claudeSessionId, "terminal", "active", now, now);
+            `).run(internalSessionId, "claude-code", claudeSessionId, sessionSource, "active", now, now);
         } else {
             internalSessionId = session.id;
             // 세션 source 조회
             const sessionData = db.prepare("SELECT source FROM sessions WHERE id = ?").get(internalSessionId) as { source: string } | undefined;
-            sessionSource = sessionData?.source || "terminal";
+            sessionSource = resolveSessionSource(explicitSource, sessionData?.source);
+
+            // 명시적 source가 들어오면 세션 source를 최신화
+            if (explicitSource && sessionData?.source !== explicitSource) {
+                db.prepare("UPDATE sessions SET source = ?, updated_at = ? WHERE id = ?")
+                    .run(explicitSource, new Date().toISOString(), internalSessionId);
+            }
+        }
+
+        if (sessionSource === "terminal") {
+            registerTerminalController(internalSessionId, claudeSessionId, runtimeControllerPid);
         }
 
         // PreToolUse: AskUserQuestion 감지 시 DB 저장 + SSE로 프론트엔드에 전달
@@ -451,8 +538,10 @@ router.post("/tool-use", async (req, res) => {
 // POST /api/hooks/user-prompt - UserPromptSubmit Hook
 router.post("/user-prompt", async (req, res) => {
     try {
-        const { sessionId: claudeSessionId, prompt } = req.body;
-        console.log("[HOOKS] UserPromptSubmit received:", { claudeSessionId, promptLength: prompt?.length });
+        const { sessionId: claudeSessionId, prompt, origin, controllerPid } = req.body;
+        const explicitSource = parseHookSource(origin);
+        const runtimeControllerPid = parseControllerPid(controllerPid);
+        console.log("[HOOKS] UserPromptSubmit received:", { claudeSessionId, promptLength: prompt?.length, origin, controllerPid: runtimeControllerPid });
 
         if (!claudeSessionId || !prompt) {
             return res.json({ success: true });
@@ -464,18 +553,31 @@ router.post("/user-prompt", async (req, res) => {
         let session = resolveInternalSession(claudeSessionId);
         let internalSessionId: string;
 
+        let sessionSource: SessionSource = "terminal";
         if (!session) {
             // 터미널 직접 시작 — 새 세션 생성
             internalSessionId = randomUUID();
             const now = new Date().toISOString();
+            sessionSource = resolveSessionSource(explicitSource, "terminal");
             db.prepare(`
                 INSERT INTO sessions (id, type, claude_session_id, source, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(internalSessionId, "claude-code", claudeSessionId, "terminal", "active", now, now);
+            `).run(internalSessionId, "claude-code", claudeSessionId, sessionSource, "active", now, now);
             sessionMappingCache.set(claudeSessionId, internalSessionId);
             console.log(`[HOOKS] UserPromptSubmit: Created new session ${internalSessionId} for claude ${claudeSessionId}`);
         } else {
             internalSessionId = session.id;
+            const sessionData = db.prepare("SELECT source FROM sessions WHERE id = ?").get(internalSessionId) as { source: string } | undefined;
+            sessionSource = resolveSessionSource(explicitSource, sessionData?.source);
+
+            if (explicitSource && sessionData?.source !== explicitSource) {
+                db.prepare("UPDATE sessions SET source = ?, updated_at = ? WHERE id = ?")
+                    .run(explicitSource, new Date().toISOString(), internalSessionId);
+            }
+        }
+
+        if (sessionSource === "terminal") {
+            registerTerminalController(internalSessionId, claudeSessionId, runtimeControllerPid);
         }
 
         // 사용자 메시지 DB 저장
@@ -525,8 +627,10 @@ router.post("/user-prompt", async (req, res) => {
 // POST /api/hooks/permission-notify - PermissionRequest hook (알림 전용, CLI 다이얼로그는 그대로 표시)
 router.post("/permission-notify", async (req, res) => {
     try {
-        const { sessionId: claudeSessionId, toolName, toolInput } = req.body;
-        console.log("[HOOKS] PermissionNotify received:", { claudeSessionId, toolName });
+        const { sessionId: claudeSessionId, toolName, toolInput, origin, controllerPid } = req.body;
+        const explicitSource = parseHookSource(origin);
+        const runtimeControllerPid = parseControllerPid(controllerPid);
+        console.log("[HOOKS] PermissionNotify received:", { claudeSessionId, toolName, origin, controllerPid: runtimeControllerPid });
 
         if (!claudeSessionId || !toolName) {
             return res.json({ success: true }); // 에러여도 빈 응답
@@ -537,26 +641,36 @@ router.post("/permission-notify", async (req, res) => {
         // 세션 조회 (자동 매핑 포함)
         let session = resolveInternalSession(claudeSessionId);
         let internalSessionId: string;
-        let sessionSource: string = "terminal"; // 기본값
+        let sessionSource: SessionSource = "terminal"; // 기본값
 
         if (!session) {
             // 터미널에서 생성된 세션 - 새로 등록
             internalSessionId = randomUUID();
             const now = new Date().toISOString();
+            sessionSource = resolveSessionSource(explicitSource, "terminal");
             db.prepare(`
                 INSERT INTO sessions (id, type, claude_session_id, source, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(internalSessionId, "claude-code", claudeSessionId, "terminal", "active", now, now);
+            `).run(internalSessionId, "claude-code", claudeSessionId, sessionSource, "active", now, now);
             sessionMappingCache.set(claudeSessionId, internalSessionId);
         } else {
             internalSessionId = session.id;
             // 세션 source 조회
             const sessionData = db.prepare("SELECT source FROM sessions WHERE id = ?").get(internalSessionId) as { source: string } | undefined;
-            sessionSource = sessionData?.source || "terminal";
+            sessionSource = resolveSessionSource(explicitSource, sessionData?.source);
+
+            if (explicitSource && sessionData?.source !== explicitSource) {
+                db.prepare("UPDATE sessions SET source = ?, updated_at = ? WHERE id = ?")
+                    .run(explicitSource, new Date().toISOString(), internalSessionId);
+            }
+        }
+
+        if (sessionSource === "terminal") {
+            registerTerminalController(internalSessionId, claudeSessionId, runtimeControllerPid);
         }
 
         // DB에 permission 메시지 저장 (requestId 없이 notify용 ID 생성)
-        const notifyId = `notify-${Date.now()}`;
+        const notifyId = `notify-${randomUUID()}`;
         const permMsgId = `permission-${notifyId}`;
         const permNow = new Date().toISOString();
         const permSeq = getNextSequence(internalSessionId);
@@ -594,22 +708,47 @@ router.post("/permission-notify", async (req, res) => {
 // POST /api/hooks/permission-request - PermissionRequest hook (권한 요청 등록) - Web 세션용
 router.post("/permission-request", async (req, res) => {
     try {
-        const { sessionId: claudeSessionId, toolName, toolInput } = req.body;
-        console.log("[HOOKS] PermissionRequest received:", { claudeSessionId, toolName });
+        const { sessionId: claudeSessionId, toolName, toolInput, origin, controllerPid } = req.body;
+        const explicitSource = parseHookSource(origin);
+        const runtimeControllerPid = parseControllerPid(controllerPid);
+        console.log("[HOOKS] PermissionRequest received:", { claudeSessionId, toolName, origin, controllerPid: runtimeControllerPid });
 
         if (!claudeSessionId || !toolName) {
             return res.status(400).json({ error: "Missing required fields" });
         }
 
+        const db = getDatabase();
         // 세션 조회 (자동 매핑 포함)
-        const session = resolveInternalSession(claudeSessionId);
+        let session = resolveInternalSession(claudeSessionId);
+        let internalSessionId: string;
+        let sessionSource: SessionSource = "terminal";
 
         if (!session) {
-            console.log(`[HOOKS] PermissionRequest: No session found for claude_session_id ${claudeSessionId}`);
-            return res.status(404).json({ error: "Session not found" });
+            // 세션 매핑이 아직 없어도 권한 요청을 유실하지 않도록 즉시 생성
+            internalSessionId = randomUUID();
+            const now = new Date().toISOString();
+            sessionSource = resolveSessionSource(explicitSource, "terminal");
+
+            db.prepare(`
+                INSERT INTO sessions (id, type, claude_session_id, source, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(internalSessionId, "claude-code", claudeSessionId, sessionSource, "active", now, now);
+            sessionMappingCache.set(claudeSessionId, internalSessionId);
+            console.log(`[HOOKS] PermissionRequest: Created session ${internalSessionId} for claude ${claudeSessionId}`);
+        } else {
+            internalSessionId = session.id;
+            const sessionData = db.prepare("SELECT source FROM sessions WHERE id = ?").get(internalSessionId) as { source: string } | undefined;
+            sessionSource = resolveSessionSource(explicitSource, sessionData?.source);
+
+            if (explicitSource && sessionData?.source !== explicitSource) {
+                db.prepare("UPDATE sessions SET source = ?, updated_at = ? WHERE id = ?")
+                    .run(explicitSource, new Date().toISOString(), internalSessionId);
+            }
         }
 
-        const internalSessionId = session.id;
+        if (sessionSource === "terminal") {
+            registerTerminalController(internalSessionId, claudeSessionId, runtimeControllerPid);
+        }
 
         // 오래된 요청 정리 (3분 이상 경과)
         const now = Date.now();
@@ -635,7 +774,6 @@ router.post("/permission-request", async (req, res) => {
         pendingPermissions.set(requestId, pendingPermission);
 
         // DB에 permission 메시지 저장
-        const db = getDatabase();
         const permMsgId = `permission-${requestId}`;
         const permNow = new Date().toISOString();
         const permSeq = getNextSequence(internalSessionId);
@@ -643,7 +781,8 @@ router.post("/permission-request", async (req, res) => {
             requestId,
             toolName,
             toolInput: toolInput || {},
-            decided: false
+            decided: false,
+            source: sessionSource
         });
 
         db.prepare(`
@@ -663,8 +802,21 @@ router.post("/permission-request", async (req, res) => {
                 sessionId: internalSessionId,
                 requestId,
                 toolName,
-                toolInput: toolInput || {}
+                toolInput: toolInput || {},
+                source: sessionSource
             });
+        } else {
+            // Web 구독자가 없으면 자동 deny 상태로 마킹해 폴링이 즉시 종료되도록 처리
+            pendingPermission.decided = true;
+            pendingPermission.behavior = "deny";
+
+            const existingMsg = db.prepare("SELECT permission_data FROM messages WHERE id = ?").get(permMsgId) as { permission_data: string } | undefined;
+            if (existingMsg?.permission_data) {
+                const permData = JSON.parse(existingMsg.permission_data);
+                permData.decided = true;
+                permData.behavior = "deny";
+                db.prepare("UPDATE messages SET permission_data = ? WHERE id = ?").run(JSON.stringify(permData), permMsgId);
+            }
         }
 
         console.log(`[HOOKS] PermissionRequest: Registered ${requestId} for session ${internalSessionId} (hasSubscribers: ${hasSubscribers})`);
@@ -765,8 +917,10 @@ router.post("/permission-decide", async (req, res) => {
 router.post("/stop", async (req, res) => {
     try {
         console.log("[HOOKS] Stop received:", { sessionId: req.body.sessionId || req.body.session_id });
-        const { sessionId, session_id, transcript_path } = req.body;
+        const { sessionId, session_id, transcript_path, origin, controllerPid } = req.body;
         const claudeSessionId = sessionId || session_id;
+        const explicitSource = parseHookSource(origin);
+        const runtimeControllerPid = parseControllerPid(controllerPid);
 
         if (!claudeSessionId) {
             return res.json({ status: "ok" });
@@ -784,6 +938,10 @@ router.post("/stop", async (req, res) => {
         }
 
         const internalSessionId = session.id;
+
+        if (resolveSessionSource(explicitSource) === "terminal") {
+            registerTerminalController(internalSessionId, claudeSessionId, runtimeControllerPid);
+        }
 
         // transcript_path 확인 (없으면 자동 탐색)
         const resolvedTranscriptPath = transcript_path || findTranscriptPath(claudeSessionId);
@@ -878,7 +1036,7 @@ router.post("/stop", async (req, res) => {
 
         // 트리거 2: idle 전환 시 구독자가 없으면 PTY 종료
         if (!sseManager.hasSessionSubscribers(internalSessionId)) {
-            if (claudeProcessManager.hasProcess(internalSessionId)) {
+            if (claudeProcessManager.hasProcessForSession(internalSessionId)) {
                 console.log(`[CLEANUP] Terminating PTY after turn complete for session ${internalSessionId} (no subscribers)`);
                 claudeProcessManager.terminateProcess(internalSessionId);
             }

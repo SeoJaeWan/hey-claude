@@ -243,7 +243,7 @@ const startServer = async (
         sseManager.setOnSessionEmpty((sessionId) => {
             const status = sessionStatusManager.getStatus(sessionId);
             if (!status || status.status === "idle") {
-                if (claudeProcessManager.hasProcess(sessionId)) {
+                if (claudeProcessManager.hasProcessForSession(sessionId)) {
                     console.log(`[CLEANUP] Terminating idle PTY for session ${sessionId} (no subscribers + idle)`);
                     claudeProcessManager.terminateProcess(sessionId);
                 }

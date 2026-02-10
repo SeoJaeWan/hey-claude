@@ -19,6 +19,8 @@ process.stdin.on('end', async () => {
     try {
         const hookData = JSON.parse(inputData);
         const { session_id, prompt, cwd } = hookData;
+        const origin = process.env.HEY_CLAUDE_ORIGIN === 'web' ? 'web' : 'terminal';
+        const controllerPid = process.ppid;
 
         // server.lock 파일에서 포트 확인
         const lockPath = path.join(cwd, '.hey-claude', 'server.lock');
@@ -47,6 +49,8 @@ process.stdin.on('end', async () => {
             sessionId: session_id,
             prompt: prompt,
             projectPath: cwd,
+            origin,
+            controllerPid,
         });
 
         const options = {
