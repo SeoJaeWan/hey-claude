@@ -7,7 +7,7 @@ import path from "path";
 
 // Import routes
 import setupRouter, { initSetupCache } from "./routes/setup.js";
-import hooksRouter from "./routes/hooks.js";
+import hooksRouter, { checkTerminalSessionsHeartbeat } from "./routes/hooks.js";
 import sessionsRouter from "./routes/sessions.js";
 import chatRouter from "./routes/chat.js";
 import aiRouter from "./routes/ai.js";
@@ -264,7 +264,13 @@ const startServer = async (
         // 9. 서버 시작
         await startServer(projectPath, DEFAULT_PORT);
 
-        // 10. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
+        // 10. CLI 프로세스 하트비트 체크 (5초마다)
+        console.log("Starting CLI process heartbeat check (5s interval)...");
+        setInterval(() => {
+            checkTerminalSessionsHeartbeat();
+        }, 5000);
+
+        // 11. 명령어 캐시 갱신 (백그라운드, 서버 시작 차단 안 함)
         refreshCommandsCache();
     } catch (err) {
         console.error("Failed to start server:", err);

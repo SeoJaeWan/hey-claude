@@ -93,6 +93,53 @@ export const getTerminalControllerPid = (sessionId: string): number | undefined 
     return terminalSessionControllers.get(sessionId)?.controllerPid;
 };
 
+interface SessionTranscriptCursorRow {
+    last_processed_uuid?: string | null;
+    last_read_offset?: number | null;
+}
+
+const getSessionTranscriptCursor = (sessionId: string): { lastUuid?: string; lastOffset: number } => {
+    const memoryUuid = sessionStatusManager.getLastProcessedUuid(sessionId);
+    const memoryOffset = sessionStatusManager.getLastReadOffset(sessionId);
+
+    if (memoryUuid || memoryOffset > 0) {
+        return {
+            lastUuid: memoryUuid,
+            lastOffset: memoryOffset,
+        };
+    }
+
+    const db = getDatabase();
+    const row = db.prepare(`
+        SELECT last_processed_uuid, COALESCE(last_read_offset, 0) as last_read_offset
+        FROM sessions
+        WHERE id = ?
+    `).get(sessionId) as SessionTranscriptCursorRow | undefined;
+
+    return {
+        lastUuid: row?.last_processed_uuid || undefined,
+        lastOffset: typeof row?.last_read_offset === "number" ? row.last_read_offset : 0,
+    };
+};
+
+const persistSessionTranscriptCursor = (
+    sessionId: string,
+    lastUuid: string | undefined,
+    lastOffset: number
+): void => {
+    const db = getDatabase();
+    db.prepare(`
+        UPDATE sessions
+        SET last_processed_uuid = ?, last_read_offset = ?
+        WHERE id = ?
+    `).run(lastUuid || null, lastOffset, sessionId);
+
+    sessionStatusManager.setLastReadOffset(sessionId, lastOffset);
+    if (lastUuid) {
+        sessionStatusManager.setLastProcessedUuid(sessionId, lastUuid);
+    }
+};
+
 /**
  * Claude transcript 파일 경로 구성
  * Claude는 ~/.claude/projects/{project-hash}/{session-id}.jsonl 에 transcript 저장
@@ -486,35 +533,44 @@ router.post("/tool-use", async (req, res) => {
             try {
                 const transcriptPath = findTranscriptPath(claudeSessionId);
                 if (transcriptPath) {
-                    const lastUuid = sessionStatusManager.getLastProcessedUuid(internalSessionId);
-                    const lastOffset = sessionStatusManager.getLastReadOffset(internalSessionId);
-                    const { results: newTexts, newOffset } = await getNewAssistantTexts(transcriptPath, lastUuid, lastOffset);
-                    sessionStatusManager.setLastReadOffset(internalSessionId, newOffset);
+                    const cursor = getSessionTranscriptCursor(internalSessionId);
+                    const { results: newTexts, newOffset } = await getNewAssistantTexts(
+                        transcriptPath,
+                        cursor.lastUuid,
+                        cursor.lastOffset
+                    );
+                    let latestUuid = cursor.lastUuid;
 
                     for (const { uuid, text } of newTexts) {
                         const assistantMsgId = randomUUID();
                         const assistantSeq = getNextSequence(internalSessionId);
-                        db.prepare(`
-                            INSERT INTO messages (id, session_id, role, content, timestamp, sequence)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        `).run(assistantMsgId, internalSessionId, "assistant", text, now, assistantSeq);
+                        const insertResult = db.prepare(`
+                            INSERT OR IGNORE INTO messages (id, session_id, role, content, timestamp, sequence, transcript_uuid)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        `).run(assistantMsgId, internalSessionId, "assistant", text, now, assistantSeq, uuid);
 
-                        sseManager.broadcastToSession(internalSessionId, {
-                            type: "assistant_message",
-                            sessionId: internalSessionId,
-                            message: {
-                                id: assistantMsgId,
+                        if (insertResult.changes > 0) {
+                            sseManager.broadcastToSession(internalSessionId, {
+                                type: "assistant_message",
                                 sessionId: internalSessionId,
-                                role: "assistant",
-                                content: text,
-                                createdAt: now,
-                                sequence: assistantSeq
-                            }
-                        });
+                                message: {
+                                    id: assistantMsgId,
+                                    sessionId: internalSessionId,
+                                    role: "assistant",
+                                    content: text,
+                                    createdAt: now,
+                                    sequence: assistantSeq
+                                }
+                            });
+                            console.log(`[HOOKS] Intermediate assistant text sent: ${text.substring(0, 80)} (uuid: ${uuid.substring(0, 8)})`);
+                        } else {
+                            console.log(`[HOOKS] Intermediate assistant text skipped (duplicate uuid: ${uuid.substring(0, 8)})`);
+                        }
 
-                        sessionStatusManager.setLastProcessedUuid(internalSessionId, uuid);
-                        console.log(`[HOOKS] Intermediate assistant text sent: ${text.substring(0, 80)} (uuid: ${uuid.substring(0, 8)})`);
+                        latestUuid = uuid;
                     }
+
+                    persistSessionTranscriptCursor(internalSessionId, latestUuid, newOffset);
                 }
             } catch (error) {
                 console.error("[HOOKS] Intermediate text extraction failed:", error);
@@ -949,39 +1005,48 @@ router.post("/stop", async (req, res) => {
         // transcript에서 아직 보내지 않은 assistant 메시지 추출 (UUID 기반 중복 방지)
         if (resolvedTranscriptPath) {
             try {
-                const lastUuid = sessionStatusManager.getLastProcessedUuid(internalSessionId);
-                const lastOffset = sessionStatusManager.getLastReadOffset(internalSessionId);
-                const { results: newTexts, newOffset } = await getNewAssistantTexts(resolvedTranscriptPath, lastUuid, lastOffset);
-                sessionStatusManager.setLastReadOffset(internalSessionId, newOffset);
+                const cursor = getSessionTranscriptCursor(internalSessionId);
+                const { results: newTexts, newOffset } = await getNewAssistantTexts(
+                    resolvedTranscriptPath,
+                    cursor.lastUuid,
+                    cursor.lastOffset
+                );
+                let latestUuid = cursor.lastUuid;
 
                 if (newTexts.length > 0) {
                     for (const { uuid, text } of newTexts) {
                         const assistantMessageId = randomUUID();
                         const stopSeq = getNextSequence(internalSessionId);
-                        db.prepare(`
-                            INSERT INTO messages (id, session_id, role, content, timestamp, sequence)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        `).run(assistantMessageId, internalSessionId, "assistant", text, now, stopSeq);
+                        const insertResult = db.prepare(`
+                            INSERT OR IGNORE INTO messages (id, session_id, role, content, timestamp, sequence, transcript_uuid)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        `).run(assistantMessageId, internalSessionId, "assistant", text, now, stopSeq, uuid);
 
-                        sseManager.broadcastToSession(internalSessionId, {
-                            type: "assistant_message",
-                            sessionId: internalSessionId,
-                            message: {
-                                id: assistantMessageId,
+                        if (insertResult.changes > 0) {
+                            sseManager.broadcastToSession(internalSessionId, {
+                                type: "assistant_message",
                                 sessionId: internalSessionId,
-                                role: "assistant",
-                                content: text,
-                                createdAt: now,
-                                sequence: stopSeq
-                            }
-                        });
+                                message: {
+                                    id: assistantMessageId,
+                                    sessionId: internalSessionId,
+                                    role: "assistant",
+                                    content: text,
+                                    createdAt: now,
+                                    sequence: stopSeq
+                                }
+                            });
+                            console.log(`[HOOKS] Stop: Assistant message saved: ${assistantMessageId} (${text.length} chars)`);
+                        } else {
+                            console.log(`[HOOKS] Stop: Assistant message skipped (duplicate uuid: ${uuid.substring(0, 8)})`);
+                        }
 
-                        sessionStatusManager.setLastProcessedUuid(internalSessionId, uuid);
-                        console.log(`[HOOKS] Stop: Assistant message saved: ${assistantMessageId} (${text.length} chars)`);
+                        latestUuid = uuid;
                     }
                 } else {
                     console.log(`[HOOKS] Stop: No new assistant text found in transcript`);
                 }
+
+                persistSessionTranscriptCursor(internalSessionId, latestUuid, newOffset);
             } catch (error) {
                 console.error(`[HOOKS] Stop: Failed to parse transcript:`, error);
             }
@@ -1057,5 +1122,50 @@ router.post("/stop", async (req, res) => {
         res.json({ status: "error" });
     }
 });
+
+/**
+ * CLI 프로세스 하트비트 체크
+ * 터미널 세션의 controllerPid가 죽었는지 확인하고, 죽었으면 세션 정리
+ */
+export const checkTerminalSessionsHeartbeat = (): void => {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+
+    for (const [sessionId, controller] of terminalSessionControllers.entries()) {
+        // 프로세스 생존 확인
+        let isAlive = false;
+        try {
+            process.kill(controller.controllerPid, 0);
+            isAlive = true;
+        } catch {
+            // 프로세스 죽음
+        }
+
+        if (!isAlive) {
+            console.log(`[HEARTBEAT] CLI process ${controller.controllerPid} died for session ${sessionId}`);
+
+            // 세션 상태가 streaming이면 정리
+            const currentStatusData = sessionStatusManager.getStatus(sessionId);
+            if (currentStatusData?.status === "streaming") {
+                // 세션 상태를 idle로 변경
+                sessionStatusManager.setStatus(sessionId, "idle");
+
+                // SSE로 turn_complete 전송
+                sseManager.broadcastToSession(sessionId, {
+                    type: "turn_complete",
+                    sessionId
+                });
+
+                // DB 업데이트
+                db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, sessionId);
+
+                console.log(`[HEARTBEAT] Session ${sessionId} cleaned up (turn_complete sent)`);
+            }
+
+            // terminalSessionControllers에서 제거
+            terminalSessionControllers.delete(sessionId);
+        }
+    }
+};
 
 export default router;

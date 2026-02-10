@@ -54,6 +54,7 @@
         ],
         "PermissionRequest": [
             {
+                "matcher": "Write|Edit|MultiEdit|Bash|Grep|Glob|Read|Task|WebFetch|WebSearch",
                 "hooks": [
                     {
                         "type": "command",

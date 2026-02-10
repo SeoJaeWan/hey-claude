@@ -45,6 +45,8 @@ const createTables = (database: Database.Database): void => {
             name TEXT,
             source TEXT DEFAULT 'web',
             status TEXT DEFAULT 'active',
+            last_processed_uuid TEXT,
+            last_read_offset INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -67,6 +69,7 @@ const createTables = (database: Database.Database): void => {
             timestamp TEXT NOT NULL,
             question_submitted INTEGER DEFAULT 0,
             question_data TEXT,
+            transcript_uuid TEXT,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
 
@@ -137,6 +140,46 @@ const createTables = (database: Database.Database): void => {
     } catch (error) {
         if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
             console.error("[DATABASE] Error adding question_answers column:", error);
+        }
+    }
+
+    // transcript_uuid 컬럼 추가 (마이그레이션) - transcript assistant dedupe key
+    try {
+        database.exec(`ALTER TABLE messages ADD COLUMN transcript_uuid TEXT`);
+        console.log("[DATABASE] Added transcript_uuid column to messages table");
+    } catch (error) {
+        if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
+            console.error("[DATABASE] Error adding transcript_uuid column:", error);
+        }
+    }
+
+    // transcript uuid dedupe 인덱스 (컬럼 준비 후 생성)
+    try {
+        database.exec(`
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_session_transcript_uuid
+            ON messages(session_id, transcript_uuid)
+            WHERE transcript_uuid IS NOT NULL
+        `);
+    } catch (error) {
+        console.error("[DATABASE] Error creating transcript uuid index:", error);
+    }
+
+    // sessions cursor 컬럼 추가 (마이그레이션) - transcript incremental cursor persistence
+    try {
+        database.exec(`ALTER TABLE sessions ADD COLUMN last_processed_uuid TEXT`);
+        console.log("[DATABASE] Added last_processed_uuid column to sessions table");
+    } catch (error) {
+        if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
+            console.error("[DATABASE] Error adding last_processed_uuid column:", error);
+        }
+    }
+
+    try {
+        database.exec(`ALTER TABLE sessions ADD COLUMN last_read_offset INTEGER DEFAULT 0`);
+        console.log("[DATABASE] Added last_read_offset column to sessions table");
+    } catch (error) {
+        if (!(error instanceof Error && error.message.includes("duplicate column name"))) {
+            console.error("[DATABASE] Error adding last_read_offset column:", error);
         }
     }
 

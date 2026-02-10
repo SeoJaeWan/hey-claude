@@ -47,16 +47,16 @@ export const parseTranscriptIncremental = async (
 
         // 3. 라인 분할 + 불완전 라인 처리
         const lines = content.split('\n');
-        let newOffset: number;
+        let newOffset = stat.size;
 
-        // 마지막 라인이 비어있으면 (줄바꿈으로 끝남) → 모든 라인 처리 가능
+        // 마지막 줄이 줄바꿈 없이 끝난 경우:
+        // - JSON 파싱 성공하면 완전한 라인으로 간주해 처리
+        // - 실패하면 불완전 라인으로 보고 offset을 되돌려 다음 읽기에서 재시도
+        let trailingLine: string | null = null;
         if (lines[lines.length - 1] === '') {
             lines.pop(); // 빈 마지막 요소 제거
-            newOffset = stat.size;
         } else {
-            // 마지막 라인이 불완전 → 제외하고 처리
-            const lastLine = lines.pop();
-            newOffset = stat.size - Buffer.byteLength(lastLine || '', 'utf-8');
+            trailingLine = lines.pop() ?? null;
         }
 
         // 4. JSON 파싱
@@ -68,6 +68,18 @@ export const parseTranscriptIncremental = async (
                 entries.push(JSON.parse(trimmed) as TranscriptEntry);
             } catch {
                 console.warn(`Failed to parse transcript line: ${trimmed.substring(0, 100)}...`);
+            }
+        }
+
+        if (trailingLine !== null) {
+            const trimmedTrailing = trailingLine.trim();
+            if (trimmedTrailing) {
+                try {
+                    entries.push(JSON.parse(trimmedTrailing) as TranscriptEntry);
+                } catch {
+                    // 마지막 줄이 아직 쓰기 중이면 다음 읽기에서 재시도
+                    newOffset = stat.size - Buffer.byteLength(trailingLine, 'utf-8');
+                }
             }
         }
 
