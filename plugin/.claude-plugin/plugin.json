@@ -8,6 +8,5 @@
     "homepage": "https://github.com/SeoJaeWan/hey-claude",
     "repository": "https://github.com/SeoJaeWan/hey-claude",
     "license": "MIT",
-    "keywords": ["memory", "context", "multi-ai", "web-ui"],
-    "hooks": "./hooks/hooks.json"
+    "keywords": ["memory", "context", "multi-ai", "web-ui"]
 }
