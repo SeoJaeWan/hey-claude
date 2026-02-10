@@ -162,6 +162,10 @@ export const useGlobalSSE = () => {
 
                 // 해당 세션의 캐시 무효화 → 돌아갔을 때 자동 refetch
                 queryClient.invalidateQueries({queryKey: ["session", updatedSessionId]});
+                // 메시지 캐시도 무효화하여 재진입 시 stale 데이터 방지
+                if (eventType !== "loading_start") {
+                    queryClient.invalidateQueries({queryKey: ["messages", updatedSessionId]});
+                }
 
                 // 세션이 캐시에 없으면 목록 갱신
                 const exists = ensureSessionInCache(queryClient, updatedSessionId);

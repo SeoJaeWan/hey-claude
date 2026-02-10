@@ -122,20 +122,27 @@ router.get("/:id/messages", async (req, res) => {
     try {
         const { id } = req.params;
         const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+        const beforeSequenceParam = req.query.beforeSequence as string | undefined;
+        const beforeSequence = beforeSequenceParam ? Number(beforeSequenceParam) : undefined;
         const before = req.query.before as string | undefined;
 
         const db = getDatabase();
 
         let messages;
-        if (before) {
-            // 이전 메시지 로드 (커서 기반)
+        if (typeof beforeSequence === "number" && Number.isFinite(beforeSequence)) {
+            // sequence 기반 커서 (우선 사용)
+            messages = db.prepare(
+                "SELECT * FROM messages WHERE session_id = ? AND COALESCE(sequence, 0) < ? ORDER BY COALESCE(sequence, 0) DESC, timestamp DESC LIMIT ?"
+            ).all(id, beforeSequence, limit);
+        } else if (before) {
+            // 이전 메시지 로드 (legacy timestamp 커서)
             messages = db.prepare(
                 "SELECT * FROM messages WHERE session_id = ? AND timestamp < ? ORDER BY timestamp DESC, sequence DESC LIMIT ?"
             ).all(id, before, limit);
         } else {
             // 최신 메시지 로드 (첫 요청)
             messages = db.prepare(
-                "SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp DESC, sequence DESC LIMIT ?"
+                "SELECT * FROM messages WHERE session_id = ? ORDER BY COALESCE(sequence, 0) DESC, timestamp DESC LIMIT ?"
             ).all(id, limit);
         }
 

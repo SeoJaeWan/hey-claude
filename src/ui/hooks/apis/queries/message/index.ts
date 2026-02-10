@@ -79,9 +79,11 @@ const fileToBase64 = (file: File): Promise<string> => {
 export const useMessagesQuery = (sessionId?: string) => {
   const data = useInfiniteQuery({
     queryKey: ["messages", sessionId],
-    queryFn: async ({ pageParam }: { pageParam: string | undefined }) => {
+    queryFn: async ({ pageParam }: { pageParam: number | undefined }) => {
       const params = new URLSearchParams({ limit: "100" });
-      if (pageParam) params.set("before", pageParam);
+      if (typeof pageParam === "number") {
+        params.set("beforeSequence", String(pageParam));
+      }
       const res = await api.get<any[]>(
         `/sessions/${sessionId}/messages?${params}`,
       );
@@ -91,23 +93,30 @@ export const useMessagesQuery = (sessionId?: string) => {
         hasMore: (res as any).hasMore ?? false,
       };
     },
-    initialPageParam: undefined as string | undefined,
+    initialPageParam: undefined as number | undefined,
     getNextPageParam: (lastPage) => {
       if (!lastPage.hasMore || !lastPage.data.length) return undefined;
-      // 첫 번째 메시지의 timestamp = 가장 오래된 메시지 (ASC 정렬)
-      return lastPage.data[0].timestamp;
+      // 첫 번째 메시지 = 현재 페이지에서 가장 오래된 메시지
+      const oldest = lastPage.data[0];
+      const seq =
+        typeof oldest.sequence === "number"
+          ? oldest.sequence
+          : Number(oldest.sequence);
+      return Number.isFinite(seq) ? seq : undefined;
     },
     enabled: !!sessionId,
+    staleTime: 0,
+    refetchOnMount: "always",
     select: (data) => ({
       messages: [...data.pages]
         .reverse()
         .flatMap((p) => p.data.map(convertMessage))
         .sort((a, b) => {
-          // 1차: timestamp 기준 정렬
-          const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-          if (timeDiff !== 0) return timeDiff;
-          // 2차: sequence 기준 정렬 (같은 timestamp일 경우)
-          return (a.sequence ?? 0) - (b.sequence ?? 0);
+          // sequence를 기본 정렬 기준으로 사용 (동일 시각 fallback 포함)
+          if (a.sequence != null && b.sequence != null && a.sequence !== b.sequence) {
+            return a.sequence - b.sequence;
+          }
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         }),
       hasMore: data.pages[data.pages.length - 1]?.hasMore ?? false,
     }),
